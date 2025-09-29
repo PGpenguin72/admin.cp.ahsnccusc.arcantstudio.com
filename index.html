@@ -3,434 +3,382 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    
-    <title>政附合作社庫存管理後台</title>
+    <title>後台庫存管理系統</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Noto+Sans+TC:wght@400;500;700;900&display=swap" rel="stylesheet">
-    
-    <!-- Lucide Icons for better UI -->
-    <script src="https://unpkg.com/lucide@latest"></script> 
-    
-    <script>
-        // 設定 API URL。對於寫入操作，我們仍指向同一個 Apps Script URL。
-        const APPS_SCRIPT_URL = '/api/inventory'; 
-        const DEBOUNCE_DELAY = 500; // 防抖延遲，避免連續快速點擊導致過多請求
-        let debounceTimer;
-
-        tailwind.config = {
-            theme: {
-                extend: {
-                    colors: {
-                        'coop-primary': '#3b82f6', // 管理頁面使用藍色
-                        'coop-dark': '#1e3a8a',   
-                        'coop-alert': '#f59e0b',   
-                        'coop-danger': '#ef4444',  // 用於減少操作
-                        'coop-success': '#10b981', // 用於增加操作
-                        'text-dark': '#1f2937',    
-                    },
-                    fontFamily: {
-                        sans: ['Inter', 'Noto Sans TC', 'sans-serif'],
-                    }
-                }
-            }
-        }
-
-        let currentSheet = 'Breakfast'; 
-
-        document.addEventListener('DOMContentLoaded', () => {
-            switchSheet('Breakfast', true);
-            loadInventory();
-            
-            document.getElementById('tab-Breakfast').addEventListener('click', () => switchSheet('Breakfast'));
-            document.getElementById('tab-Lunch').addEventListener('click', () => switchSheet('Lunch'));
-            // 啟用 Lucide Icon
-            lucide.createIcons();
-        });
-
-        function switchSheet(newSheetName, isInitialLoad = false) {
-            if (currentSheet === newSheetName && !isInitialLoad) return; 
-
-            currentSheet = newSheetName;
-
-            document.querySelectorAll('.sheet-tab').forEach(tab => {
-                const isSelected = tab.dataset.sheet === newSheetName;
-                
-                tab.classList.remove('text-coop-dark', 'border-coop-dark', 'text-gray-500', 'hover:text-coop-dark/80');
-
-                if (isSelected) {
-                    tab.classList.add('text-coop-primary', 'border-coop-primary');
-                } else {
-                    tab.classList.add('text-gray-500', 'border-transparent', 'hover:text-coop-primary/80', 'hover:border-gray-300');
-                }
-            });
-
-            if (!isInitialLoad) {
-                loadInventory();
-            }
-        }
-
-        function formatTimestamp(isoString) {
-            if (!isoString || isoString === 'N/A - 獲取失敗') return isoString;
-            
-            const date = new Date(isoString);
-            
-            if (isNaN(date.getTime())) {
-                return `時間格式錯誤 (${isoString})`;
-            }
-
-            const year = date.getFullYear();
-            const month = (date.getMonth() + 1).toString().padStart(2, '0');
-            const day = date.getDate().toString().padStart(2, '0');
-            const hours = date.getHours().toString().padStart(2, '0');
-            const minutes = date.getMinutes().toString().padStart(2, '0');
-            const seconds = date.getSeconds().toString().padStart(2, '0');
-
-            return `${year}/${month}/${day} ${hours}:${minutes}:${seconds}`;
-        }
-
-        function updateTimestamp(timestamp) {
-            const timestampDisplay = document.getElementById('lastUpdatedTime');
-            timestampDisplay.textContent = formatTimestamp(timestamp);
-        }
-
-        // 顯示或隱藏訊息框
-        function showNotification(message, isError = false) {
-            const notification = document.getElementById('notification');
-            const icon = notification.querySelector('i');
-            const text = notification.querySelector('span');
-
-            notification.classList.remove('hidden', 'bg-green-500', 'bg-red-500');
-            notification.classList.add(isError ? 'bg-red-500' : 'bg-green-500', 'opacity-100');
-            
-            text.textContent = message;
-
-            // 設置自動消失
-            clearTimeout(notification.timer);
-            notification.timer = setTimeout(() => {
-                notification.classList.add('opacity-0');
-                // 延遲後隱藏，讓 CSS transition 完成
-                setTimeout(() => notification.classList.add('hidden'), 300); 
-            }, 3000);
-        }
-
-        /**
-         * 處理庫存數量的更新請求
-         * @param {number} row - 試算表中的實際行號 (從 2 開始)
-         * @param {number} newQuantity - 新的數量值
-         */
-        async function updateQuantity(row, newQuantity) {
-            // 數量必須是非負整數
-            const quantity = Math.max(0, parseInt(newQuantity) || 0);
-
-            const itemElement = document.querySelector(`[data-row="${row}"]`);
-            if (!itemElement) return;
-
-            // 禁用 UI 避免重複點擊
-            itemElement.classList.add('opacity-50', 'pointer-events-none');
-            
-            const apiUrl = APPS_SCRIPT_URL; // POST 請求到 Apps Script
-
-            try {
-                const response = await fetch(apiUrl, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        sheetName: currentSheet,
-                        row: row,
-                        newQuantity: quantity
-                    })
-                });
-
-                if (!response.ok) {
-                    throw new Error(`伺服器錯誤 (狀態 ${response.status})`);
-                }
-                
-                const data = await response.json(); 
-
-                if (data.error) {
-                    showNotification(`更新失敗: ${data.message}`, true);
-                } else {
-                    showNotification(`更新成功！${data.message}`);
-                    // 成功後立即重新載入資料，確保介面同步最新狀態和時間戳記
-                    loadInventory(); 
-                }
-            } catch (error) {
-                showNotification(`連線錯誤: ${error.message}`, true);
-                console.error("Update Error:", error);
-            } finally {
-                // 重新啟用 UI
-                itemElement.classList.remove('opacity-50', 'pointer-events-none');
-            }
-        }
-
-        // Debounce wrapper for manual input
-        function handleManualInput(event, row) {
-            clearTimeout(debounceTimer);
-            
-            // 僅接受數字輸入
-            let value = event.target.value.replace(/[^0-9]/g, '');
-            event.target.value = value;
-            
-            const newQuantity = parseInt(value) || 0;
-            
-            // 避免空值或非數字觸發更新
-            if (value === '' || isNaN(newQuantity)) return;
-
-            debounceTimer = setTimeout(() => {
-                updateQuantity(row, newQuantity);
-            }, DEBOUNCE_DELAY);
-        }
-
-        // 處理按鈕點擊
-        function handleButtonClick(row, change) {
-            const quantityInput = document.getElementById(`quantity-input-${row}`);
-            let currentQuantity = parseInt(quantityInput.value) || 0;
-            const newQuantity = currentQuantity + change;
-            
-            // 更新 UI 上的數字
-            quantityInput.value = Math.max(0, newQuantity);
-            
-            updateQuantity(row, newQuantity);
-        }
-
-
-        // 從 Apps Script 獲取資料 (使用 GET)
-        async function loadInventory() {
-
-            const inventoryContainer = document.getElementById('inventoryContainer');
-            const loadingIndicator = document.getElementById('loadingIndicator');
-            const errorMessageDiv = document.getElementById('errorMessage');
-            const currentSheetDisplay = document.getElementById('currentSheetDisplay');
-            
-            currentSheetDisplay.textContent = currentSheet === 'Breakfast' ? '早餐' : '午餐';
-
-            inventoryContainer.innerHTML = '';
-            errorMessageDiv.classList.add('hidden');
-            loadingIndicator.classList.remove('hidden');
-            
-            updateTimestamp('載入中...');
-
-            const apiUrl = `${APPS_SCRIPT_URL}?sheetName=${currentSheet}`;
-
-            try {
-                const response = await fetch(apiUrl);
-
-                if (!response.ok) {
-                    const errorText = await response.text();
-                    throw new Error(`代理伺服器錯誤 (狀態 ${response.status}): ${errorText}`);
-                }
-                
-                const data = await response.json(); 
-
-                if (data.error) {
-                    handleFailure(data);
-                } else {
-                    let timestamp = data.updated_at;
-
-                    if (timestamp) {
-                        updateTimestamp(timestamp);
-                    } else {
-                        updateTimestamp('N/A - 格式錯誤'); 
-                    }
-                    
-                    const inventoryData = data.data || []; 
-                    
-                    displayInventory(inventoryData); 
-                }
-            } catch (error) {
-                handleFailure({ message: `網路連線失敗或後端資料格式錯誤。原始錯誤: ${error.message}` });
-            }
-        }
-
-
-        function handleFailure(error) {
-            const loadingIndicator = document.getElementById('loadingIndicator');
-            const errorMessageDiv = document.getElementById('errorMessage');
-
-            loadingIndicator.classList.add('hidden');
-            errorMessageDiv.classList.remove('hidden');
-            errorMessageDiv.querySelector('#errorDetail').textContent = error.message || '請檢查網路連線或後端服務是否正常。';
-            console.error("Fetch Error:", error);
-            
-            updateTimestamp('N/A - 獲取失敗');
-        }
-
-        // 顯示帶有管理控制項的庫存列表
-        function displayInventory(inventoryData) {
-            const inventoryContainer = document.getElementById('inventoryContainer');
-            const loadingIndicator = document.getElementById('loadingIndicator');
-
-            loadingIndicator.classList.add('hidden');
-            
-            if (!inventoryData || inventoryData.length === 0) {
-                inventoryContainer.innerHTML = `
-                    <div class="col-span-full text-center py-12 bg-gray-100 rounded-2xl border-2 border-dashed border-gray-300 shadow-inner">
-                        <p class="text-2xl text-coop-alert font-bold mb-2"> 目前「${currentSheet === 'Breakfast' ? '早餐' : '午餐'}」資料庫中沒有任何資料。</p>
-                        <p class="text-text-dark/70 mt-3">請確認資料庫名稱是否為 <code class="bg-gray-200 px-1 py-0.5 rounded font-mono">${currentSheet}</code>，且包含有效的商品清單。</p>
-                    </div>
-                `;
-                return;
-            }
-
-            const getCardClasses = (quantity) => {
-                if (quantity <= 0) {
-                    return 'bg-red-50 border-red-300 ring-red-100';
-                } else if (quantity < 10) {
-                    return 'bg-amber-50 border-amber-300 ring-amber-100';
-                } else {
-                    return 'bg-white border-gray-200 ring-gray-100';
-                }
-            };
-
-            const htmlContent = inventoryData.map(item => {
-                const cardClasses = getCardClasses(item.quantity);
-
-                // item.row 是 Apps Script 在 doGet 中加入的試算表行號
-                const itemRow = item.row; 
-
-                return `
-                    <div class="p-4 rounded-xl border-2 shadow-lg ring-4 ${cardClasses} transition duration-300 ease-in-out flex flex-col justify-between" data-row="${itemRow}">
-                        <h2 class="text-xl font-extrabold mb-3 truncate text-text-dark">
-                            ${item.name}
-                        </h2>
-                        
-                        <!-- 數量調整控制項 -->
-                        <div class="flex items-center justify-between space-x-2 bg-gray-100 p-2 rounded-lg">
-                            
-                            <!-- 減少按鈕 -->
-                            <button 
-                                onclick="handleButtonClick(${itemRow}, -1)" 
-                                class="w-10 h-10 bg-coop-danger text-white rounded-full flex items-center justify-center shadow-md hover:bg-red-600 active:shadow-inner transition duration-150 transform active:scale-95 disabled:opacity-50"
-                                ${item.quantity <= 0 ? 'disabled' : ''}>
-                                <i data-lucide="minus" class="w-5 h-5"></i>
-                            </button>
-
-                            <!-- 手動輸入/顯示數量 (使用 contenteditable 模擬手動輸入，但改用 input 更好控制) -->
-                            <input
-                                id="quantity-input-${itemRow}"
-                                type="number"
-                                min="0"
-                                inputmode="numeric"
-                                pattern="[0-9]*"
-                                value="${item.quantity}"
-                                oninput="handleManualInput(event, ${itemRow})"
-                                class="flex-grow text-center text-4xl font-mono font-bold bg-transparent border-0 focus:ring-0 focus:outline-none p-1 w-full"
-                                style="max-width: 120px;"
-                            >
-
-                            <!-- 增加按鈕 -->
-                            <button 
-                                onclick="handleButtonClick(${itemRow}, 1)" 
-                                class="w-10 h-10 bg-coop-success text-white rounded-full flex items-center justify-center shadow-md hover:bg-green-600 active:shadow-inner transition duration-150 transform active:scale-95">
-                                <i data-lucide="plus" class="w-5 h-5"></i>
-                            </button>
-                        </div>
-                    </div>
-                `;
-            }).join('');
-
-            inventoryContainer.innerHTML = htmlContent;
-            // 重新渲染新插入的 Lucide Icon
-            lucide.createIcons();
-        }
-    </script>
     <style>
+        /* 設置全局字體和背景 */
         body {
-            -webkit-font-smoothing: antialiased;
-            -moz-osx-font-smoothing: grayscale;
+            font-family: 'Inter', sans-serif;
+            background-color: #f7f7f7;
         }
-        .container {
-            max-width: 100%;
-            padding-left: 1rem;
-            padding-right: 1rem;
+        /* 專門針對可編輯的數量文字設置樣式 */
+        .editable-quantity {
+            transition: background-color 0.2s;
         }
-        /* 隱藏 Chrome/Safari/Opera 中的數字輸入欄位箭頭 */
+        .editable-quantity:hover {
+            background-color: #e5e7eb; /* 淺灰色背景提示可點擊 */
+            cursor: pointer;
+        }
+        /* 隱藏 Chrome/Firefox 的數字輸入框箭頭 */
         input[type=number]::-webkit-inner-spin-button, 
         input[type=number]::-webkit-outer-spin-button { 
-            -webkit-appearance: none;
-            margin: 0;
+            -webkit-appearance: none; 
+            margin: 0; 
         }
-        /* 隱藏 Firefox 中的數字輸入欄位箭頭 */
         input[type=number] {
             -moz-appearance: textfield;
+            text-align: center;
         }
     </style>
 </head>
-<body class="bg-gray-100 min-h-screen text-text-dark">
-    <!-- 頂部通知訊息 -->
-    <div id="notification" class="hidden fixed top-0 left-1/2 transform -translate-x-1/2 mt-4 z-50 p-3 rounded-xl shadow-2xl text-white font-bold transition-opacity duration-300 opacity-0">
-        <span>訊息...</span>
+<body class="min-h-screen">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+        <header class="mb-8 border-b pb-4">
+            <h1 class="text-4xl font-extrabold text-gray-900">庫存管理後台</h1>
+            <p class="text-sm text-gray-500 mt-1">即時更新庫存數量 | <span id="lastUpdated">正在載入...</span></p>
+            <!-- 部署資訊，供調試使用 -->
+            <p class="text-xs text-gray-400 mt-2">當前 Worker 版本。請確保 Apps Script 部署成功。</p>
+        </header>
+
+        <!-- Tab 選項 -->
+        <div id="tabs" class="flex bg-white shadow-lg rounded-t-lg overflow-hidden mb-8">
+            <button 
+                id="tab-Breakfast" 
+                data-sheet="Breakfast" 
+                class="sheet-tab flex-1 py-4 text-center text-xl font-bold transition duration-150 border-b-4 border-indigo-600 text-indigo-600 bg-indigo-50/50">
+                早餐
+            </button>
+            <button 
+                id="tab-Lunch" 
+                data-sheet="Lunch" 
+                class="sheet-tab flex-1 py-4 text-center text-xl font-bold transition duration-150 border-b-4 border-transparent text-gray-600 hover:bg-gray-50">
+                午餐
+            </button>
+        </div>
+
+        <!-- 錯誤與載入指示器 -->
+        <div id="loadingIndicator" class="text-center py-20 hidden">
+            <div class="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-indigo-600 mx-auto mb-4"></div>
+            <p class="text-xl text-indigo-600 font-medium">正在從資料庫中獲取最新資料...</p>
+        </div>
+
+        <div id="errorMessage" class="hidden bg-red-100 border-l-4 border-red-500 text-red-700 p-5 rounded-lg shadow-md mb-8" role="alert">
+            <p class="font-bold text-lg mb-1">⚠️ 系統錯誤</p>
+            <p id="errorDetail" class="text-sm"></p>
+        </div>
+
+        <div id="inventoryContainer" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <!-- 庫存卡片將插入於此 -->
+        </div>
+
     </div>
 
-    <header class="bg-white shadow-xl sticky top-0 z-20 border-b-4 border-coop-primary">
-        <div class="container mx-auto p-4 flex justify-between items-center">
-            <h1 class="text-2xl font-extrabold tracking-tight text-coop-dark flex items-center space-x-2">
-                <i data-lucide="shield-half" class="w-7 h-7 text-coop-primary"></i>
-                <span>後台庫存管理系統</span>
-            </h1>
+    <script>
+        // 假設 Worker 路由是 /api/inventory
+        const API_ENDPOINT = '/api/inventory';
+        let currentSheet = 'Breakfast';
+
+        document.addEventListener('DOMContentLoaded', () => {
+            // 監聽 Tab 按鈕
+            document.querySelectorAll('.sheet-tab').forEach(tab => {
+                tab.addEventListener('click', (e) => {
+                    const sheetName = e.currentTarget.dataset.sheet;
+                    switchTab(sheetName);
+                });
+            });
+
+            // 初始化載入
+            loadInventory(currentSheet);
+        });
+
+        // --- 核心功能函數 ---
+
+        /** * 切換 Tab 樣式並重新載入庫存 
+         * @param {string} newSheetName 
+         */
+        function switchTab(newSheetName) {
+            if (currentSheet === newSheetName) return;
+
+            // 更新按鈕樣式
+            document.querySelectorAll('.sheet-tab').forEach(tab => {
+                tab.classList.remove('border-indigo-600', 'text-indigo-600', 'bg-indigo-50/50');
+                tab.classList.add('border-transparent', 'text-gray-600', 'hover:bg-gray-50');
+            });
+
+            const activeTab = document.getElementById(`tab-${newSheetName}`);
+            activeTab.classList.add('border-indigo-600', 'text-indigo-600', 'bg-indigo-50/50');
+            activeTab.classList.remove('border-transparent', 'text-gray-600', 'hover:bg-gray-50');
+
+            currentSheet = newSheetName;
+            loadInventory(currentSheet);
+        }
+        
+        /**
+         * 載入指定工作表的庫存資料
+         * @param {string} sheetName 
+         */
+        async function loadInventory(sheetName) {
+            const container = document.getElementById('inventoryContainer');
+            const loading = document.getElementById('loadingIndicator');
+            const errorDiv = document.getElementById('errorMessage');
+
+            container.innerHTML = '';
+            errorDiv.classList.add('hidden');
+            loading.classList.remove('hidden');
+
+            try {
+                // 使用 GET 請求從 Worker 代理獲取資料
+                const response = await fetch(`${API_ENDPOINT}?sheetName=${sheetName}`);
+                const result = await response.json();
+
+                if (result.error) {
+                    displayError(`資料庫回傳錯誤: ${result.message}`);
+                    return;
+                }
+                
+                // 成功載入
+                renderInventory(result.data, container);
+                updateTimestamp(result.updated_at);
+
+            } catch (error) {
+                displayError(`連線錯誤或 API 代理失敗: ${error.message}`);
+            } finally {
+                loading.classList.add('hidden');
+            }
+        }
+        
+        /**
+         * 渲染庫存卡片到頁面
+         * @param {Array<Object>} data 
+         * @param {HTMLElement} container 
+         */
+        function renderInventory(data, container) {
+            if (data.length === 0) {
+                container.innerHTML = `<p class="text-gray-500 text-center col-span-full py-10">此工作表目前沒有庫存品項。</p>`;
+                return;
+            }
+
+            container.innerHTML = data.map(item => `
+                <div id="item-${item.row}" class="bg-white rounded-xl shadow-md p-6 border border-gray-200 transition duration-300 hover:shadow-lg">
+                    <h3 class="text-2xl font-semibold text-gray-800 mb-4">${item.name}</h3>
+                    
+                    <div class="flex items-center justify-between space-x-4">
+                        
+                        <!-- 數量顯示/編輯區域 -->
+                        <div class="flex-grow flex justify-center items-center h-12">
+                            <span 
+                                class="text-3xl font-bold text-gray-900 px-4 py-1 rounded-lg editable-quantity"
+                                data-name="${item.name}"
+                                data-row="${item.row}"
+                                data-quantity="${item.quantity}"
+                                onclick="toggleEditMode(this)"
+                            >
+                                ${item.quantity}
+                            </span>
+                        </div>
+                        
+                        <!-- 增減按鈕區域 -->
+                        <div class="flex space-x-2">
+                            <button 
+                                class="w-12 h-12 bg-red-500 text-white text-3xl rounded-lg font-bold hover:bg-red-600 active:bg-red-700 transition duration-150 shadow-md"
+                                onclick="changeQuantity(${item.row}, ${item.quantity}, -1)">
+                                -
+                            </button>
+                            <button 
+                                class="w-12 h-12 bg-green-500 text-white text-3xl rounded-lg font-bold hover:bg-green-600 active:bg-green-700 transition duration-150 shadow-md"
+                                onclick="changeQuantity(${item.row}, ${item.quantity}, 1)">
+                                +
+                            </button>
+                        </div>
+                    </div>
+                    <div id="status-${item.row}" class="text-center text-sm mt-3 h-4"></div>
+                </div>
+            `).join('');
+        }
+        
+        /**
+         * 更新顯示的時間戳記
+         * @param {string | null} timestampStr 
+         */
+        function updateTimestamp(timestampStr) {
+            const tsElement = document.getElementById('lastUpdated');
+            if (timestampStr) {
+                const date = new Date(timestampStr);
+                tsElement.textContent = `更新時間: ${date.toLocaleString('zh-TW', {
+                    year: 'numeric', month: '2-digit', day: '2-digit', 
+                    hour: '2-digit', minute: '2-digit', second: '2-digit'
+                })}`;
+            } else {
+                tsElement.textContent = `更新時間: N/A (時間讀取失敗)`;
+            }
+        }
+        
+        /**
+         * 顯示頂部錯誤訊息
+         * @param {string} message 
+         */
+        function displayError(message) {
+            const errorDiv = document.getElementById('errorMessage');
+            const errorDetail = document.getElementById('errorDetail');
+            errorDetail.textContent = message;
+            errorDiv.classList.remove('hidden');
+        }
+
+        /**
+         * 顯示單個品項的狀態訊息 (成功/失敗)
+         * @param {number} row 
+         * @param {string} message 
+         * @param {boolean} isSuccess
+         */
+        function displayItemStatus(row, message, isSuccess) {
+            const statusElement = document.getElementById(`status-${row}`);
+            if (statusElement) {
+                statusElement.textContent = message;
+                statusElement.className = isSuccess ? 'text-green-600 text-sm mt-3 h-4' : 'text-red-600 text-sm mt-3 h-4';
+                // 2 秒後清除訊息
+                setTimeout(() => {
+                    if(statusElement.textContent === message) statusElement.textContent = '';
+                }, 2000);
+            }
+        }
+
+
+        // --- 互動功能函數 ---
+
+        /**
+         * 處理增減按鈕點擊
+         * @param {number} row 
+         * @param {number} currentQuantity 
+         * @param {number} delta 
+         */
+        function changeQuantity(row, currentQuantity, delta) {
+            const newQuantity = Math.max(0, currentQuantity + delta); // 數量不小於 0
+            if (newQuantity !== currentQuantity) {
+                updateInventory(row, newQuantity);
+            }
+        }
+
+        /**
+         * 切換數量顯示區域為輸入框，以便手動輸入
+         * @param {HTMLElement} element 
+         */
+        function toggleEditMode(element) {
+            if (element.querySelector('input')) return; // 已經是輸入模式
+
+            const currentQuantity = parseInt(element.dataset.quantity || '0');
+
+            // 創建輸入框
+            const input = document.createElement('input');
+            input.type = 'number';
+            input.value = currentQuantity;
+            input.className = 'w-full h-full text-3xl font-bold text-gray-900 text-center border-2 border-indigo-500 rounded-lg p-1 focus:outline-none';
+            input.min = '0'; // 確保不會輸入負數
+
+            // 清空舊內容並插入輸入框
+            element.innerHTML = '';
+            element.appendChild(input);
+            input.focus();
+            input.select();
+
+            // 處理失焦 (Blur) 事件 - 當點擊其他地方或按 Tab
+            const handleBlur = () => {
+                const newQuantity = parseInt(input.value);
+                // 檢查是否為有效數字且數量有變動
+                if (!isNaN(newQuantity) && newQuantity >= 0 && newQuantity !== currentQuantity) {
+                    updateInventory(parseInt(element.dataset.row), newQuantity);
+                } else {
+                    // 恢復為文字顯示模式
+                    exitEditMode(element, currentQuantity);
+                }
+            };
+
+            // 處理 Enter 鍵事件 - 快速提交
+            const handleKeydown = (e) => {
+                if (e.key === 'Enter') {
+                    input.blur(); // 觸發 blur 事件
+                }
+            };
+
+            input.addEventListener('blur', handleBlur);
+            input.addEventListener('keydown', handleKeydown);
             
-            <div class="text-right flex flex-col items-end">
-                <p class="text-xs font-semibold text-gray-700 mb-1">
-                    上次成功寫入：<span id="lastUpdatedTime" class="text-coop-primary font-extrabold">載入中...</span>
-                </p>
-                <button onclick="loadInventory()" class="text-xs text-gray-500 hover:text-coop-primary/80 transition duration-150 underline flex items-center space-x-1 mt-0.5">
-                    <i data-lucide="refresh-cw" class="w-3 h-3"></i>
-                    <span>重新載入最新資料</span>
-                </button>
-            </div>
-        </div>
+            // 退出編輯模式並恢復文字顯示
+            const exitEditMode = (el, quantity) => {
+                el.innerHTML = quantity;
+                el.dataset.quantity = quantity;
+                el.removeEventListener('click', handleBlur); // 避免重複觸發
+                el.removeEventListener('keydown', handleKeydown);
+            };
 
-        <div class="bg-yellow-100 border-t border-yellow-300 py-2 text-center">
-            <p class="text-sm font-medium text-coop-dark">
-                ⚠️ **重要：** 此為後台管理介面，所有操作將**直接修改**試算表資料！
-            </p>
-        </div>
-    </header>
+            // 當點擊輸入框外部時，退出編輯模式
+            document.addEventListener('click', (e) => {
+                if (!element.contains(e.target)) {
+                    // 使用 setTimeout 確保 blur 優先處理
+                    setTimeout(() => {
+                        if (element.querySelector('input')) {
+                            // 如果輸入框還存在，強制執行 blur
+                            input.blur(); 
+                        }
+                    }, 50);
+                }
+            });
+        }
 
-    <main class="container mx-auto mt-8 pb-10">
-        <section class="mb-6">
+
+        /**
+         * 發送 POST 請求更新庫存到 Apps Script
+         * @param {number} row - 要更新的試算表行號
+         * @param {number} newQuantity - 新的庫存數量
+         */
+        async function updateInventory(row, newQuantity) {
+            const container = document.getElementById(`item-${row}`);
+            const statusElement = document.getElementById(`status-${row}`);
+            const quantitySpan = container.querySelector(`.editable-quantity`);
             
-            <div class="flex max-w-4xl mx-auto border-b-2 border-gray-300 mb-8">
-                <button 
-                    id="tab-Breakfast" 
-                    data-sheet="Breakfast" 
-                    class="sheet-tab flex-1 py-3 px-4 text-center text-lg font-bold transition duration-150 border-b-4">
-                    早餐庫存
-                </button>
-                <button 
-                    id="tab-Lunch" 
-                    data-sheet="Lunch" 
-                    class="sheet-tab flex-1 py-3 px-4 text-center text-lg font-bold transition duration-150 border-b-4">
-                    午餐庫存
-                </button>
-            </div>
+            if (!quantitySpan) return; // 安全檢查
 
-            <h2 class="text-3xl font-extrabold text-text-dark mb-6 text-center sm:text-left max-w-6xl mx-auto">
-                管理：<span id="currentSheetDisplay" class="border-b-4 border-coop-primary pb-1">早餐</span>
-            </h2>
-            
-            <div id="loadingIndicator" class="text-center py-20 hidden">
-                <div class="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-coop-primary mx-auto mb-4"></div>
-                <p class="text-xl text-coop-primary font-medium">資料傳輸中... 正在從資料庫中獲取最新資料...</p>
-            </div>
+            // 鎖定 UI，顯示處理中
+            statusElement.textContent = '更新中...';
+            statusElement.className = 'text-blue-600 text-sm mt-3 h-4';
+            container.style.opacity = 0.6;
 
-            <div id="errorMessage" class="hidden bg-red-100 border-l-4 border-red-500 text-red-700 p-5 rounded-lg shadow-md max-w-4xl mx-auto" role="alert">
-                <p class="font-bold text-lg mb-1">⚠️ 系統錯誤或資料遺失</p>
-                <p id="errorDetail" class="text-sm"></p>
-            </div>
-            
-            <div id="inventoryContainer" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 max-w-6xl mx-auto">
-                <!-- 庫存卡片將插入到這裡 -->
-            </div>
-        </section>
-    </main>
+            const postBody = {
+                sheetName: currentSheet,
+                row: row,
+                newQuantity: newQuantity
+            };
 
-    <footer class="text-center text-sm text-gray-500 p-4 border-t mt-16 bg-white shadow-inner">
-        <p>政大附中合作社庫存管理後台 | ArcantStudio極區工作室 © 2025</p>
-    </footer>
+            try {
+                const response = await fetch(API_ENDPOINT, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(postBody)
+                });
+
+                const result = await response.json();
+
+                if (result.error) {
+                    throw new Error(result.message);
+                }
+
+                // 成功更新後，更新前端的顯示和 data 屬性
+                quantitySpan.innerHTML = newQuantity;
+                quantitySpan.dataset.quantity = newQuantity;
+                
+                displayItemStatus(row, '✅ 更新成功', true);
+
+            } catch (error) {
+                console.error('更新失敗:', error);
+                displayItemStatus(row, `❌ 更新失敗: ${error.message.substring(0, 30)}...`, false);
+                // 失敗時，強制重新載入以同步資料
+                loadInventory(currentSheet); 
+            } finally {
+                container.style.opacity = 1;
+            }
+        }
+
+    </script>
 </body>
 </html>
