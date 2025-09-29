@@ -25,7 +25,7 @@ export default {
       }
 
       // 從環境變數中讀取秘密的 Google Apps Script Web App URL
-      const secretApiUrl = env.SS_API_URL_10;
+      const secretApiUrl = env.SS_API_URL;
       if (!secretApiUrl) {
         return new Response('API URL not configured', { status: 500 });
       }
