@@ -1,124 +1,63 @@
-/**
- * 處理 Web App API 請求 (GET)。
- * 讀取指定工作表（預設為 'Breakfast'）的庫存數據和時間戳記。
- * * 假設：
- * - 庫存資料在 A 欄 (品名) 和 B 欄 (數量)，從第 2 行開始。
- * - 時間元件 (年, 月, 日, 時, 分, 秒) 位於 E2 到 E7 儲存格。
- */
-function doGet(e) {
-  const sheetName = e.parameter.sheetName || 'Breakfast';
-  
-  let updatedAt = null;
-  
-  try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const sheet = ss.getSheetByName(sheetName);
-    
-    if (!sheet) {
-      throw new Error(`找不到工作表 "${sheetName}"。`);
+// _worker10.js - 使用代理模式存取 Google Apps Script API
+
+export default {
+  async fetch(request, env, ctx) {
+    const url = new URL(request.url);
+
+    // 1. 如果請求路徑是 /api/inventory，就觸發代理邏輯
+    if (url.pathname.startsWith('/api/inventory')) {
+      // 解析 query string 或 POST body
+      let sheetName = url.searchParams.get('sheetName');
+
+      // 如果是 POST，則讀取 body
+      let requestBody = null;
+      if (request.method === 'POST') {
+        try {
+          requestBody = await request.json();
+          sheetName = sheetName || requestBody.sheetName;
+        } catch (err) {
+          return new Response('Invalid JSON body', { status: 400 });
+        }
+      }
+
+      if (!sheetName) {
+        return new Response('Missing sheetName parameter', { status: 400 });
+      }
+
+      // 從環境變數中讀取秘密的 Google Apps Script Web App URL
+      const secretApiUrl = env.SS_API_URL_10;
+      if (!secretApiUrl) {
+        return new Response('API URL not configured', { status: 500 });
+      }
+
+      try {
+        let actualUrl = `${secretApiUrl}?sheetName=${encodeURIComponent(sheetName)}`;
+        let fetchOptions = { method: request.method };
+
+        if (request.method === 'POST') {
+          fetchOptions = {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(requestBody),
+          };
+        }
+
+        // 代理請求到 Google Apps Script
+        const response = await fetch(actualUrl, fetchOptions);
+        const data = await response.json();
+
+        return new Response(JSON.stringify(data), {
+          headers: {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*', // 可改成你的網域
+          },
+        });
+      } catch (error) {
+        return new Response(`Error fetching data: ${error.message}`, { status: 502 });
+      }
     }
 
-    // --- 讀取時間戳記 ---
-    try {
-      const timeValues = sheet.getRange(2, 5, 6, 1).getValues().flat(); 
-      const [year, month, day, hour, minute, second] = timeValues.map(v => Number(v) || 0);
-      const pad = (num) => String(num).padStart(2, '0');
-      updatedAt = `${year}-${pad(month)}-${pad(day)}T${pad(hour)}:${pad(minute)}:${pad(second)}`;
-    } catch (timeError) {
-      Logger.log("讀取時間戳記時發生錯誤: " + timeError.message);
-      updatedAt = null;
-    }
-
-    // --- 讀取庫存資料 ---
-    const lastRow = sheet.getLastRow();
-    let inventoryData = [];
-
-    if (lastRow >= 2) {
-      // 讀取 A:C 範圍 (品名, 數量, [暫不使用])，但最關鍵的是讀取 A, B 欄
-      // 我們在數據中新增 'row' 屬性，用來指示前端更新時該寫入哪一行
-      const range = sheet.getRange(2, 1, lastRow - 1, 2); 
-      const values = range.getValues();
-      
-      inventoryData = values
-        .filter(row => row[0]) // 濾除品名為空值的列
-        .map((row, index) => ({
-          // index + 2 是因為資料從第 2 行開始 (index 0 是第 2 行)
-          row: index + 2, 
-          name: String(row[0]).trim(),
-          quantity: Number(row[1]) || 0
-        }));
-    }
-    
-    return ContentService.createTextOutput(JSON.stringify({
-      data: inventoryData,
-      updated_at: updatedAt
-    })).setMimeType(ContentService.MimeType.JSON);
-
-  } catch (error) {
-    Logger.log("API 錯誤 (GET): " + error.message);
-    return ContentService.createTextOutput(JSON.stringify({ 
-      error: true, 
-      message: error.message,
-      updated_at: updatedAt
-    })).setMimeType(ContentService.MimeType.JSON);
-  }
-}
-
-
-/**
- * 處理 Web App API 請求 (POST)。
- * 接收 JSON 格式的 { sheetName, row, newQuantity } 進行庫存更新。
- */
-function doPost(e) {
-  let requestData;
-  try {
-    // 解析 JSON 請求體
-    requestData = JSON.parse(e.postData.contents);
-  } catch (error) {
-    return ContentService.createTextOutput(JSON.stringify({ 
-      error: true, 
-      message: "無法解析 JSON 請求體。"
-    })).setMimeType(ContentService.MimeType.JSON);
-  }
-
-  const { sheetName, row, newQuantity } = requestData;
-
-  // 驗證輸入
-  if (!sheetName || !row || typeof newQuantity === 'undefined' || isNaN(newQuantity)) {
-    return ContentService.createTextOutput(JSON.stringify({ 
-      error: true, 
-      message: "缺少必要的參數 (sheetName, row, newQuantity) 或格式不正確。"
-    })).setMimeType(ContentService.MimeType.JSON);
-  }
-
-  try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const sheet = ss.getSheetByName(sheetName);
-
-    if (!sheet) {
-      throw new Error(`找不到工作表 "${sheetName}"。`);
-    }
-
-    // 檢查行號是否在有效範圍內 (至少是第 2 行)
-    if (row < 2 || row > sheet.getLastRow()) {
-         throw new Error(`無效的行號 ${row}。`);
-    }
-
-    // 寫入新數量到 B 欄的指定行
-    // range: (行, 列, 行數, 列數) -> 從指定行、第 2 欄開始，取 1 行、1 列
-    sheet.getRange(row, 2).setValue(newQuantity);
-
-    // 成功回傳
-    return ContentService.createTextOutput(JSON.stringify({
-      success: true,
-      message: `工作表 ${sheetName} 的第 ${row} 行庫存已更新為 ${newQuantity}。`
-    })).setMimeType(ContentService.MimeType.JSON);
-
-  } catch (error) {
-    Logger.log("API 錯誤 (POST): " + error.message);
-    return ContentService.createTextOutput(JSON.stringify({ 
-      error: true, 
-      message: error.message
-    })).setMimeType(ContentService.MimeType.JSON);
-  }
-}
+    // 2. 其他請求 => 靜態資源
+    return env.ASSETS.fetch(request);
+  },
+};
