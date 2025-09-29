@@ -4,24 +4,27 @@
  * 處理所有 Web 請求。
  * 1. 處理根路徑 / 請求 (回傳主頁面 HTML)。
  * 2. 處理 /api/inventory 請求 (Apps Script API Proxy)。
- * * NOTE: 我們假設主頁面檔案 index_admin.html 的內容可透過全局變數 __files 存取。
+ * NOTE: 我們假設主頁面檔案 index.html 的內容可透過全局變數 __files 存取。
  */
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
     // --- 1. 靜態檔案服務邏輯: 處理根路徑 / 或主頁面檔案請求 ---
+    // 修正: 現在只尋找 'index.html'
     if (url.pathname === '/' || url.pathname.endsWith('/index.html')) {
         
-        // 檢查環境是否提供了主頁面檔案的內容 (我們使用的是上一步生成的 index_admin.html)
-        // 假定環境透過 __files 物件存取靜態檔案內容
-        if (typeof __files !== 'undefined' && __files['index.html']) {
-             return new Response(__files['index.html'], { 
+        // 嘗試回傳 index.html 的內容
+        const assetPath = 'index.html';
+        
+        // 檢查環境是否提供了主頁面檔案的內容
+        if (typeof __files !== 'undefined' && __files[assetPath]) {
+             return new Response(__files[assetPath], { 
                 headers: { 'Content-Type': 'text/html' } // 確保設定正確的 Content-Type
              });
         } else {
-            // 如果無法存取檔案內容
-             return new Response('主頁面 HTML 檔案 (index.html) 載入失敗，請確認檔案名稱和部署狀態。', { status: 500 });
+            // 如果無法存取檔案內容，請檢查檔案名稱和部署狀態
+             return new Response(`主頁面 HTML 檔案 (${assetPath}) 載入失敗，請確認檔案名稱和部署狀態。`, { status: 500 });
         }
     }
     
