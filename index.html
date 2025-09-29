@@ -3,37 +3,28 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    
-    <meta name="description" content="政附合作社熱食線上查詢系統，提供給你最新最即時的資料。">
-    
-    <link rel="icon" type="image/png" href="/picture/icon.png">
-    <link rel="shortcut icon" type="image/png" href="/picture/icon.png">
-
-    <meta property="og:title" content="政附合作社熱食系統 - 即時庫存查詢">
-    <meta property="og:description" content="隨時掌握政附合作社熱食的最新庫存數量，不再錯過想吃的品項！">
-    <meta property="og:image" content="/picture/icon.png">
-    <meta property="og:url" content="請在此處填入您的網站完整網址，例如：https://cp.ahsnccusc.arcantstudio.com">
-    <meta property="og:type" content="website">
-
-    <title>政附合作社熱食系統</title>
+    <title>政附合作社熱食系統 - 後台管理</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 載入字體 -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Noto+Sans+TC:wght@400;500;700;900&display=swap" rel="stylesheet">
-    
-    <script>
-        const APPS_SCRIPT_URL = '/api/inventory'; 
 
+    <script>
+        // 設定 API 代理路徑
+        const API_ENDPOINT = '/api/inventory'; 
+        let currentSheet = 'Breakfast';
+
+        // 使用前台的 Tailwind Config 保持色彩一致
         tailwind.config = {
             theme: {
                 extend: {
                     colors: {
-                        // 🟢 已將綠色 (coop-primary, coop-dark) 替換為 Indigo 系列
-                        'coop-primary': '#4f46e5', // indigo-600
-                        'coop-dark': '#3730a3',    // indigo-800
-                        'coop-alert': '#f59e0b',   // yellow-500
-                        'coop-soldout': '#cc3333', 
-                        'text-dark': '#1f2937',    
+                        'coop-primary': '#10b981', // 綠色 (主要色)
+                        'coop-dark': '#065f46',    // 深綠色 (文字/強調)
+                        'coop-alert': '#f59e0b',   // 警告黃
+                        'coop-soldout': '#cc3333', // 售罄紅
+                        'text-dark': '#1f2937',    // 深灰文字
                     },
                     fontFamily: {
                         sans: ['Inter', 'Noto Sans TC', 'sans-serif'],
@@ -41,186 +32,346 @@
                 }
             }
         }
-
-        let currentSheet = 'Breakfast'; 
-
+        
         document.addEventListener('DOMContentLoaded', () => {
-            switchSheet('Breakfast', true);
-            loadInventory();
-            
-            document.getElementById('tab-Breakfast').addEventListener('click', () => switchSheet('Breakfast'));
-            document.getElementById('tab-Lunch').addEventListener('click', () => switchSheet('Lunch'));
-        });
-
-        function switchSheet(newSheetName, isInitialLoad = false) {
-            if (currentSheet === newSheetName && !isInitialLoad) return; 
-
-            currentSheet = newSheetName;
-
+            // 監聽 Tab 按鈕
             document.querySelectorAll('.sheet-tab').forEach(tab => {
-                const isSelected = tab.dataset.sheet === newSheetName;
-                
-                // 🟢 替換 Tab 選擇器中的 coop-dark 為 text-coop-dark (即 indigo-800)
-                tab.classList.remove('text-coop-dark', 'border-coop-dark', 'text-gray-500', 'hover:text-coop-dark/80', 'border-transparent', 'hover:border-gray-300');
-
-                if (isSelected) {
-                    tab.classList.add('text-coop-dark', 'border-coop-dark');
-                } else {
-                    tab.classList.add('text-gray-500', 'border-transparent', 'hover:text-coop-dark/80', 'hover:border-gray-300');
-                }
+                tab.addEventListener('click', (e) => {
+                    const sheetName = e.currentTarget.dataset.sheet;
+                    switchTab(sheetName);
+                });
             });
 
-            if (!isInitialLoad) {
-                loadInventory();
-            }
-        }
+            // 初始化載入
+            switchTab(currentSheet, true);
+        });
 
+        // --- 核心功能函數 ---
+
+        /** * 切換 Tab 樣式並重新載入庫存 
+         * @param {string} newSheetName 
+         * @param {boolean} isInitialLoad 
+         */
+        function switchTab(newSheetName, isInitialLoad = false) {
+            if (currentSheet === newSheetName && !isInitialLoad) return;
+
+            // 更新按鈕樣式 (使用 coop 顏色)
+            document.querySelectorAll('.sheet-tab').forEach(tab => {
+                tab.classList.remove('border-coop-dark', 'text-coop-dark', 'bg-coop-primary/10');
+                tab.classList.add('border-transparent', 'text-gray-600', 'hover:bg-gray-50');
+            });
+
+            const activeTab = document.getElementById(`tab-${newSheetName}`);
+            activeTab.classList.add('border-coop-dark', 'text-coop-dark', 'bg-coop-primary/10');
+            activeTab.classList.remove('border-transparent', 'text-gray-600', 'hover:bg-gray-50');
+
+            currentSheet = newSheetName;
+            loadInventory(currentSheet);
+        }
+        
+        /**
+         * 格式化時間戳記
+         */
         function formatTimestamp(isoString) {
-            if (!isoString || isoString === 'N/A - 獲取失敗') return isoString;
-            
-            const date = new Date(isoString);
-            
-            if (isNaN(date.getTime())) {
-                return `時間格式錯誤 (${isoString})`;
+            if (!isoString || isoString === 'N/A - 獲取失敗') return 'N/A';
+            try {
+                const date = new Date(isoString);
+                if (isNaN(date.getTime())) return `時間格式錯誤`;
+                return date.toLocaleString('zh-TW', {
+                    year: 'numeric', month: '2-digit', day: '2-digit', 
+                    hour: '2-digit', minute: '2-digit', second: '2-digit'
+                });
+            } catch (e) {
+                return `時間格式錯誤`;
             }
-
-            const year = date.getFullYear();
-            const month = (date.getMonth() + 1).toString().padStart(2, '0');
-            const day = date.getDate().toString().padStart(2, '0');
-            const hours = date.getHours().toString().padStart(2, '0');
-            const minutes = date.getMinutes().toString().padStart(2, '0');
-
-            return `${year}/${month}/${day} ${hours}:${minutes}`;
         }
 
-        function updateTimestamp(timestamp) {
-            const timestampDisplay = document.getElementById('lastUpdatedTime');
-            timestampDisplay.textContent = formatTimestamp(timestamp);
-        }
-
-
-        async function loadInventory() {
-
-            const inventoryContainer = document.getElementById('inventoryContainer');
-            const loadingIndicator = document.getElementById('loadingIndicator');
-            const errorMessageDiv = document.getElementById('errorMessage');
+        /**
+         * 載入指定工作表的庫存資料
+         * @param {string} sheetName 
+         */
+        async function loadInventory(sheetName) {
+            const container = document.getElementById('inventoryContainer');
+            const loading = document.getElementById('loadingIndicator');
+            const errorDiv = document.getElementById('errorMessage');
             const currentSheetDisplay = document.getElementById('currentSheetDisplay');
             
-            currentSheetDisplay.textContent = currentSheet === 'Breakfast' ? '早餐' : '午餐';
+            currentSheetDisplay.textContent = sheetName === 'Breakfast' ? '早餐' : '午餐';
 
-            inventoryContainer.innerHTML = '';
-            errorMessageDiv.classList.add('hidden');
-            loadingIndicator.classList.remove('hidden');
-            
-            updateTimestamp(null);
-
-            const apiUrl = `${APPS_SCRIPT_URL}?sheetName=${currentSheet}`;
+            container.innerHTML = '';
+            errorDiv.classList.add('hidden');
+            loading.classList.remove('hidden');
 
             try {
-                const response = await fetch(apiUrl);
+                const response = await fetch(`${API_ENDPOINT}?sheetName=${sheetName}`);
+                const result = await response.json();
 
-                if (!response.ok) {
-                    const errorText = await response.text();
-                    throw new Error(`代理伺服器錯誤 (狀態 ${response.status}): ${errorText}`);
+                if (result.error) {
+                    displayError(`資料庫回傳錯誤: ${result.message}`);
+                    return;
                 }
                 
-                const data = await response.json(); 
+                // 成功載入
+                const inventoryData = result.data || result;
+                renderInventory(Array.isArray(inventoryData) ? inventoryData : [], container);
+                updateTimestamp(result.updated_at);
 
-                if (data.error) {
-                    handleFailure(data);
-                } else {
-                    let timestamp = data.updated_at || (data.data && data.data.updated_at);
-
-                    if (timestamp) {
-                        updateTimestamp(timestamp);
-                    } else {
-                        updateTimestamp('N/A - 格式錯誤'); 
-                    }
-                    
-                    const inventoryData = data.data || data; 
-                    
-                    displayInventory(Array.isArray(inventoryData) ? inventoryData : []); 
-                }
             } catch (error) {
-                handleFailure({ message: `網路連線失敗或後端資料格式錯誤。原始錯誤: ${error.message}` });
+                displayError(`連線錯誤或 API 代理失敗: ${error.message}`);
+            } finally {
+                loading.classList.add('hidden');
             }
         }
-
-
-        function handleFailure(error) {
-            const loadingIndicator = document.getElementById('loadingIndicator');
-            const errorMessageDiv = document.getElementById('errorMessage');
-
-            loadingIndicator.classList.add('hidden');
-            errorMessageDiv.classList.remove('hidden');
-            errorMessageDiv.querySelector('#errorDetail').textContent = error.message || '請檢查網路連線或後端服務是否正常。';
-            console.error("Fetch Error:", error);
-            
-            updateTimestamp('N/A - 獲取失敗');
-        }
-
-        function displayInventory(inventoryData) {
-            const inventoryContainer = document.getElementById('inventoryContainer');
-            const loadingIndicator = document.getElementById('loadingIndicator');
-
-            loadingIndicator.classList.add('hidden');
-            
-            if (!inventoryData || inventoryData.length === 0) {
-                inventoryContainer.innerHTML = `
-                    <div class="col-span-full text-center py-12 bg-gray-100 rounded-2xl border-2 border-dashed border-gray-300 shadow-inner">
-                        <p class="text-2xl text-coop-alert font-bold mb-2"> 目前「${currentSheet === 'Breakfast' ? '早餐' : '午餐'}」資料庫中沒有任何資料。</p>
-                        <p class="text-text-dark/70 mt-3">請確認資料庫名稱是否為 <code class="bg-gray-200 px-1 py-0.5 rounded font-mono">${currentSheet}</code>，且包含有效的商品清單。</p>
-                    </div>
-                `;
+        
+        /**
+         * 渲染庫存卡片到頁面
+         * @param {Array<Object>} data 
+         * @param {HTMLElement} container 
+         */
+        function renderInventory(data, container) {
+            if (data.length === 0) {
+                container.innerHTML = `<p class="text-gray-500 text-center col-span-full py-10">此工作表目前沒有庫存品項。</p>`;
                 return;
             }
 
-            const getCardClasses = (quantity) => {
-                if (quantity <= 0) {
-                    return 'bg-coop-soldout border-coop-soldout text-white shadow-2xl ring-2 ring-coop-soldout/50';
-                } else if (quantity < 10) {
-                    // 🟢 替換 coop-alert 為 yellow-500
-                    return 'bg-white border-coop-alert text-text-dark shadow-xl ring-2 ring-coop-alert/50';
-                } else {
-                    return 'bg-white border-gray-200 text-text-dark shadow-lg hover:shadow-xl transition duration-300';
-                }
-            };
+            // 使用與前台類似的網格配置
+            container.className = 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8 max-w-6xl mx-auto';
 
-            const getQuantityText = (quantity) => {
-                if (quantity <= 0) {
-                    return `<span class="font-extrabold text-white">已售罄</span>`;
-                } else if (quantity < 10) {
-                    // 🟢 替換 text-coop-alert 為 text-coop-alert (即 yellow-500)
-                    return `<span class="font-bold text-coop-alert">僅剩 ${quantity}</span>`;
-                } else {
-                    // 🟢 替換 text-coop-dark 為 text-coop-dark (即 indigo-800)
-                    return `<span class="font-semibold text-coop-dark">${quantity}</span>`;
-                }
-            };
+            container.innerHTML = data.map(item => `
+                <div id="item-${item.row}" class="bg-white rounded-2xl shadow-xl p-6 border-2 border-gray-200 transition duration-300 hover:shadow-2xl flex flex-col justify-between">
+                    <h3 class="text-xl font-extrabold text-text-dark mb-1 truncate">${item.name}</h3>
+                    
+                    <!-- 狀態與時間戳 -->
+                    <p class="text-sm text-gray-500 mb-4">最後更新: ${formatTimestamp(item.last_update)}</p>
 
-            const htmlContent = inventoryData.map(item => {
-                const cardClasses = getCardClasses(item.quantity);
-                const quantityHtml = getQuantityText(item.quantity);
-                const isSoldOut = item.quantity <= 0;
-
-                return `
-                    <div class="p-6 rounded-2xl border-2 ${cardClasses} ${!isSoldOut ? 'hover:scale-[1.02]' : ''} transform transition duration-300 ease-in-out cursor-default flex flex-col justify-between">
-                        <h2 class="text-xl font-extrabold mb-4 truncate ${isSoldOut ? 'text-white' : 'text-text-dark'}">
-                            ${item.name}
-                        </h2>
+                    <!-- 庫存控制區塊 -->
+                    <div class="flex items-center justify-between space-x-2 bg-gray-100 rounded-xl p-3 shadow-inner">
                         
-                        <div class="text-4xl font-mono text-right mt-3">
-                            ${quantityHtml}
+                        <!-- 減號按鈕 (使用售罄紅) -->
+                        <button 
+                            class="w-10 h-10 bg-coop-soldout text-white text-2xl rounded-lg font-bold hover:bg-red-600 active:bg-red-700 transition duration-150 shadow-md flex items-center justify-center"
+                            onclick="changeQuantity(${item.row}, -1)">
+                            &minus;
+                        </button>
+                        
+                        <!-- 數量顯示/編輯區域 -->
+                        <div class="flex-grow flex justify-center items-center h-10">
+                            <span 
+                                class="text-3xl font-bold text-gray-900 px-4 py-1 rounded-lg editable-quantity"
+                                data-name="${item.name}"
+                                data-row="${item.row}"
+                                data-quantity="${item.quantity}"
+                                onclick="toggleEditMode(this)"
+                            >
+                                ${item.quantity}
+                            </span>
                         </div>
+                        
+                        <!-- 加號按鈕 (使用主要綠色) -->
+                        <button 
+                            class="w-10 h-10 bg-coop-primary text-white text-2xl rounded-lg font-bold hover:bg-coop-dark active:bg-coop-dark/90 transition duration-150 shadow-md flex items-center justify-center"
+                            onclick="changeQuantity(${item.row}, 1)">
+                            +
+                        </button>
                     </div>
-                `;
-            }).join('');
 
-            inventoryContainer.innerHTML = htmlContent;
+                    <!-- 價格欄位已移除 -->
+                    
+                    <div id="status-${item.row}" class="text-center text-sm mt-3 h-4"></div>
+                </div>
+            `).join('');
         }
+        
+        /**
+         * 更新顯示的時間戳記
+         * @param {string | null} timestampStr 
+         */
+        function updateTimestamp(timestampStr) {
+            const tsElement = document.getElementById('lastUpdatedTime');
+            tsElement.textContent = formatTimestamp(timestampStr);
+        }
+        
+        /**
+         * 顯示頂部錯誤訊息
+         * @param {string} message 
+         */
+        function displayError(message) {
+            const errorDiv = document.getElementById('errorMessage');
+            const errorDetail = document.getElementById('errorDetail');
+            errorDetail.textContent = message;
+            errorDiv.classList.remove('hidden');
+        }
+
+        /**
+         * 顯示單個品項的狀態訊息 (成功/失敗)
+         * @param {number} row 
+         * @param {string} message 
+         * @param {boolean} isSuccess
+         */
+        function displayItemStatus(row, message, isSuccess) {
+            const statusElement = document.getElementById(`status-${row}`);
+            if (statusElement) {
+                statusElement.textContent = message;
+                statusElement.className = isSuccess ? 'text-green-600 text-sm mt-3 h-4' : 'text-red-600 text-sm mt-3 h-4';
+                // 2 秒後清除訊息
+                setTimeout(() => {
+                    if(statusElement.textContent === message) statusElement.textContent = '';
+                }, 2000);
+            }
+        }
+
+
+        // --- 互動功能函數 ---
+
+        /**
+         * 處理增減按鈕點擊，並從 DOM 讀取最新庫存數量
+         * @param {number} row - 要更新的試算表行號
+         * @param {number} delta - 增減量 (+1 或 -1)
+         */
+        function changeQuantity(row, delta) {
+            const quantitySpan = document.querySelector(`.editable-quantity[data-row="${row}"]`);
+            if (!quantitySpan) {
+                 console.error(`無法找到 Row ${row} 的數量元素。`);
+                 return;
+            }
+
+            const currentQuantity = parseInt(quantitySpan.dataset.quantity || '0', 10);
+            const newQuantity = Math.max(0, currentQuantity + delta); // 數量不小於 0
+
+            if (newQuantity !== currentQuantity) {
+                updateInventory(row, newQuantity);
+            }
+        }
+
+        /**
+         * 切換數量顯示區域為輸入框，以便手動輸入
+         * @param {HTMLElement} element 
+         */
+        function toggleEditMode(element) {
+            if (element.querySelector('input')) return; // 已經是輸入模式
+
+            const currentQuantity = parseInt(element.dataset.quantity || '0');
+
+            // 創建輸入框
+            const input = document.createElement('input');
+            input.type = 'number';
+            input.value = currentQuantity;
+            // 使用 coop-primary 作為邊框顏色
+            input.className = 'w-full h-full text-3xl font-bold text-gray-900 text-center border-2 border-coop-primary rounded-lg p-1 focus:outline-none';
+            input.min = '0'; 
+
+            // 退出編輯模式並恢復文字顯示
+            const exitEditMode = (el, quantity) => {
+                el.innerHTML = quantity;
+                el.dataset.quantity = quantity;
+            };
+
+            // 處理失焦 (Blur) 事件 - 當點擊其他地方或按 Tab
+            const handleBlur = () => {
+                input.removeEventListener('blur', handleBlur);
+                input.removeEventListener('keydown', handleKeydown);
+
+                const newQuantity = parseInt(input.value, 10);
+                
+                if (!isNaN(newQuantity) && newQuantity >= 0 && newQuantity !== currentQuantity) {
+                    updateInventory(parseInt(element.dataset.row, 10), newQuantity);
+                    // 異步更新，暫時保留舊值
+                } else {
+                    // 恢復為文字顯示模式（使用舊值）
+                    exitEditMode(element, currentQuantity);
+                }
+            };
+
+            // 處理 Enter 鍵事件 - 快速提交
+            const handleKeydown = (e) => {
+                if (e.key === 'Enter') {
+                    input.blur(); // 觸發 blur 事件
+                }
+            };
+
+            // 清空舊內容並插入輸入框
+            element.innerHTML = '';
+            element.appendChild(input);
+            input.focus();
+            input.select();
+            
+            input.addEventListener('blur', handleBlur);
+            input.addEventListener('keydown', handleKeydown);
+
+            document.addEventListener('click', function globalClick(e) {
+                if (!element.contains(e.target)) {
+                    setTimeout(() => {
+                        if (element.querySelector('input')) {
+                            input.blur();
+                        }
+                        document.removeEventListener('click', globalClick);
+                    }, 50);
+                }
+            });
+        }
+
+
+        /**
+         * 發送 POST 請求更新庫存到 Apps Script
+         * @param {number} row - 要更新的試算表行號
+         * @param {number} newQuantity - 新的庫存數量
+         */
+        async function updateInventory(row, newQuantity) {
+            const container = document.getElementById(`item-${row}`);
+            const statusElement = document.getElementById(`status-${row}`);
+            const quantitySpan = container.querySelector(`.editable-quantity`);
+            
+            if (!quantitySpan) return;
+
+            // 鎖定 UI，顯示處理中
+            statusElement.textContent = '更新中...';
+            statusElement.className = 'text-coop-primary text-sm mt-3 h-4'; // 使用主要色顯示處理中
+            container.style.opacity = 0.6;
+
+            const postBody = {
+                sheetName: currentSheet,
+                row: row,
+                newQuantity: newQuantity
+            };
+
+            try {
+                const response = await fetch(API_ENDPOINT, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(postBody)
+                });
+
+                const result = await response.json();
+
+                if (result.error) {
+                    throw new Error(result.message);
+                }
+
+                // 成功更新後，更新前端的顯示和 data 屬性
+                quantitySpan.innerHTML = newQuantity;
+                quantitySpan.dataset.quantity = newQuantity; 
+                
+                displayItemStatus(row, '✅ 更新成功', true);
+                updateTimestamp(new Date().toISOString()); // 即時更新上次更新時間
+
+            } catch (error) {
+                console.error('更新失敗:', error);
+                displayItemStatus(row, `❌ 更新失敗: ${error.message.substring(0, 30)}...`, false);
+                // 失敗時，強制重新載入以同步資料
+                loadInventory(currentSheet); 
+            } finally {
+                container.style.opacity = 1;
+            }
+        }
+
     </script>
     <style>
+        /* 繼承前台的整體樣式 */
         body {
+            font-family: 'Inter', 'Noto Sans TC', 'sans-serif';
+            background-color: #f7f7f7;
             -webkit-font-smoothing: antialiased;
             -moz-osx-font-smoothing: grayscale;
         }
@@ -229,14 +380,34 @@
             padding-left: 1rem;
             padding-right: 1rem;
         }
+        /* 專門針對可編輯的數量文字設置樣式 */
+        .editable-quantity {
+            transition: background-color 0.2s;
+        }
+        .editable-quantity:hover {
+            background-color: #e5e7eb; /* 淺灰色背景提示可點擊 */
+            cursor: pointer;
+        }
+        /* 隱藏 Chrome/Firefox 的數字輸入框箭頭 */
+        input[type=number]::-webkit-inner-spin-button, 
+        input[type=number]::-webkit-outer-spin-button { 
+            -webkit-appearance: none; 
+            margin: 0; 
+        }
+        input[type=number] {
+            -moz-appearance: textfield;
+            text-align: center;
+        }
     </style>
 </head>
 <body class="bg-gray-50 min-h-screen text-text-dark">
+    <!-- 標頭 - 使用前台結構和色彩，並將標題改為後台 -->
     <header class="bg-white shadow-lg sticky top-0 z-20 border-b border-gray-200">
         <div class="container mx-auto p-4 flex justify-between items-center">
             <h1 class="text-2xl font-extrabold tracking-tight text-coop-dark flex items-center space-x-2">
+                <!-- 使用前台圖標 -->
                 <img src="/picture/icon.png" alt="合作社熱食系統圖標" class="w-8 h-8 rounded-full shadow-inner object-cover">
-                <span>政附合作社熱食系統</span>
+                <span>政附合作社熱食 - 後台管理</span>
             </h1>
             
             <div class="text-right flex flex-col items-end">
@@ -247,9 +418,10 @@
             </div>
         </div>
 
+        <!-- 警示列 - 使用前台結構，但內容變更為後台警告 -->
         <div class="bg-coop-alert/20 border-t border-coop-alert py-2 text-center">
-            <p class="text-sm font-medium text-coop-dark">
-                ⚠️ 資料僅供參考，可能因阿姨未更新資料而導致有誤。請以合作社實際供應數量為準！
+            <p class="text-sm font-bold text-coop-dark">
+                ⚠️ 後台管理介面：您的更改會即時同步至前台！請謹慎操作！
             </p>
         </div>
     </header>
@@ -257,25 +429,29 @@
     <main class="container mx-auto mt-8 pb-10">
         <section class="mb-6">
             
+            <!-- Tab 選項 - 使用前台結構和色彩 -->
             <div class="flex max-w-4xl mx-auto border-b-2 border-gray-300 mb-8">
                 <button 
                     id="tab-Breakfast" 
                     data-sheet="Breakfast" 
                     class="sheet-tab flex-1 py-3 px-4 text-center text-lg font-bold transition duration-150 border-b-4">
-                    早餐
+                    早餐管理
                 </button>
                 <button 
                     id="tab-Lunch" 
                     data-sheet="Lunch" 
                     class="sheet-tab flex-1 py-3 px-4 text-center text-lg font-bold transition duration-150 border-b-4">
-                    午餐
+                    午餐管理
                 </button>
             </div>
 
-            <h2 class="text-3xl font-extrabold text-text-dark mb-6 text-center sm:text-left">
+            <!-- 當前工作表標題 -->
+            <h2 class="text-3xl font-extrabold text-text-dark mb-6 text-center sm:text-left max-w-6xl mx-auto px-4 sm:px-0">
                 <span id="currentSheetDisplay" class="border-b-4 border-coop-primary pb-1">早餐</span>
+                - 商品庫存
             </h2>
             
+            <!-- 錯誤與載入指示器 - 使用主要綠色 -->
             <div id="loadingIndicator" class="text-center py-20 hidden">
                 <div class="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-coop-primary mx-auto mb-4"></div>
                 <p class="text-xl text-coop-primary font-medium">資料傳輸中... 正在從資料庫中獲取最新資料...</p>
@@ -285,12 +461,14 @@
                 <p class="font-bold text-lg mb-1">⚠️ 系統錯誤或資料遺失</p>
                 <p id="errorDetail" class="text-sm"></p>
             </div>
-            
+
             <div id="inventoryContainer" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8 max-w-6xl mx-auto">
+                <!-- 庫存卡片將插入於此 -->
             </div>
         </section>
     </main>
 
+    <!-- 頁尾 - 使用前台結構 -->
     <footer class="text-center text-sm text-gray-500 p-4 border-t mt-16 bg-white shadow-inner">
         <p>政大附中合作社熱食系統 | ArcantStudio極區工作室 © 2025</p>
     </footer>
