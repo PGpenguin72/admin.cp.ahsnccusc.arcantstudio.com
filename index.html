@@ -15,8 +15,6 @@
     <meta property="og:url" content="https://admin.cp.ahsnccusc.arcantstudio.com"> 
     <meta property="og:type" content="website">
     
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>政附合作社熱食系統 - 後台管理</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -24,7 +22,13 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Noto+Sans+TC:wght@400;500;700;900&display=swap" rel="stylesheet">
 
     <script>
+        // *** 必要的常數：請將此處替換為您的實際 API 端點或代理網址！ ***
+        // 如果您的 API_ENDPOINT 是指向一個代理伺服器，而代理伺服器再去呼叫 Google Apps Script，則使用第一個。
+        // 如果您是直接呼叫 Google Apps Script，您可能需要定義 APPS_SCRIPT_URL。
+        // 由於您在後續的 updateInventory 中使用了 API_ENDPOINT，我們統一使用它作為基礎。
         const API_ENDPOINT = '/api/inventory'; 
+        // const APPS_SCRIPT_URL = 'YOUR_GOOGLE_APPS_SCRIPT_DEPLOYMENT_URL_HERE'; // 如果需要，請取消註釋並填寫
+
         let currentSheet = 'Breakfast';
 
         tailwind.config = {
@@ -52,22 +56,28 @@
                 });
             });
 
+            // 初始化時載入第一個分頁的資料
             switchTab(currentSheet, true);
         });
 
         function switchTab(newSheetName, isInitialLoad = false) {
+            // 避免重複點擊同一個分頁
             if (currentSheet === newSheetName && !isInitialLoad) return;
 
+            // 移除舊的分頁樣式
             document.querySelectorAll('.sheet-tab').forEach(tab => {
                 tab.classList.remove('border-coop-dark', 'text-coop-dark', 'bg-coop-primary/10');
                 tab.classList.add('border-transparent', 'text-gray-600', 'hover:bg-gray-50');
             });
 
+            // 新增目前分頁的樣式
             const activeTab = document.getElementById(`tab-${newSheetName}`);
             activeTab.classList.add('border-coop-dark', 'text-coop-dark', 'bg-coop-primary/10');
             activeTab.classList.remove('border-transparent', 'text-gray-600', 'hover:bg-gray-50');
 
             currentSheet = newSheetName;
+            
+            // 載入新的庫存資料
             loadInventory(currentSheet);
         }
         
@@ -85,6 +95,10 @@
             }
         }
 
+        /**
+         * 從後端 API 載入庫存資料
+         * @param {string} sheetName - 要載入的工作表名稱 (e.g., 'Breakfast', 'Lunch')
+         */
         async function loadInventory(sheetName) {
             const container = document.getElementById('inventoryContainer');
             const loading = document.getElementById('loadingIndicator');
@@ -96,21 +110,37 @@
             container.innerHTML = '';
             errorDiv.classList.add('hidden');
             loading.classList.remove('hidden');
+            
+            updateTimestamp(null); // 清空上次更新時間
 
             try {
+                // 統一使用 API_ENDPOINT 來獲取資料
                 const response = await fetch(`${API_ENDPOINT}?sheetName=${sheetName}`);
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`代理伺服器錯誤 (狀態 ${response.status}): ${errorText}`);
+                }
+
                 const result = await response.json();
 
                 if (result.error) {
+                    // 使用已定義的 displayError 函數
                     displayError(`資料庫回傳錯誤: ${result.message}`);
                     return;
                 }
                 
+                // 處理時間戳記
+                const timestamp = result.updated_at || (result.data && result.data.updated_at);
+                updateTimestamp(timestamp || 'N/A - 格式錯誤');
+
+                // 處理庫存資料
                 const inventoryData = result.data || result;
+                // 使用已定義的 renderInventory 函數
                 renderInventory(Array.isArray(inventoryData) ? inventoryData : [], container);
-                updateTimestamp(result.updated_at);
 
             } catch (error) {
+                // 使用已定義的 displayError 函數
                 displayError(`連線錯誤或 API 代理失敗: ${error.message}`);
             } finally {
                 loading.classList.add('hidden');
@@ -120,6 +150,8 @@
         function renderInventory(data, container) {
             if (data.length === 0) {
                 container.innerHTML = `<p class="text-gray-500 text-center col-span-full py-10">此工作表目前沒有庫存品項。</p>`;
+                // 確保在無資料時佈局不會出錯
+                container.className = 'flex justify-center'; 
                 return;
             }
 
@@ -160,55 +192,9 @@
                 </div>
             `).join('');
         }
-
-        async function loadInventory() {
-
-            const inventoryContainer = document.getElementById('inventoryContainer');
-            const loadingIndicator = document.getElementById('loadingIndicator');
-            const errorMessageDiv = document.getElementById('errorMessage');
-            const currentSheetDisplay = document.getElementById('currentSheetDisplay');
-            
-            currentSheetDisplay.textContent = currentSheet === 'Breakfast' ? '早餐' : '午餐';
-
-            inventoryContainer.innerHTML = '';
-            errorMessageDiv.classList.add('hidden');
-            loadingIndicator.classList.remove('hidden');
-            
-            updateTimestamp(null);
-
-            const apiUrl = `${APPS_SCRIPT_URL}?sheetName=${currentSheet}`;
-
-            try {
-                const response = await fetch(apiUrl);
-
-                if (!response.ok) {
-                    const errorText = await response.text();
-                    throw new Error(`代理伺服器錯誤 (狀態 ${response.status}): ${errorText}`);
-                }
-                
-                const data = await response.json(); 
-
-                if (data.error) {
-                    handleFailure(data);
-                } else {
-                    let timestamp = data.updated_at || (data.data && data.data.updated_at);
-
-                    if (timestamp) {
-                        updateTimestamp(timestamp);
-                    } else {
-                        updateTimestamp('N/A - 格式錯誤'); 
-                    }
-                    
-                    const inventoryData = data.data || data; 
-                    
-                    displayInventory(Array.isArray(inventoryData) ? inventoryData : []); 
-                }
-            } catch (error) {
-                handleFailure({ message: `網路連線失敗或後端資料格式錯誤。原始錯誤: ${error.message}` });
-            }
-        }
         
-        
+        // 原始代碼中重複的 loadInventory 函數已刪除，並將其邏輯合併到第一個 loadInventory(sheetName)
+
         function updateTimestamp(timestampStr) {
             const tsElement = document.getElementById('lastUpdatedTime');
             tsElement.textContent = formatTimestamp(timestampStr);
@@ -265,6 +251,7 @@
             };
 
             const handleBlur = () => {
+                // 在 blur 執行時，先移除監聽器以避免重複觸發
                 input.removeEventListener('blur', handleBlur);
                 input.removeEventListener('keydown', handleKeydown);
 
@@ -288,14 +275,17 @@
             input.focus();
             input.select();
             
+            // 重新添加事件監聽器
             input.addEventListener('blur', handleBlur);
             input.addEventListener('keydown', handleKeydown);
 
             document.addEventListener('click', function globalClick(e) {
                 if (!element.contains(e.target)) {
+                    // 使用 setTimeout 確保 blur 事件能先處理完畢
                     setTimeout(() => {
                         if (element.querySelector('input')) {
-                            input.blur();
+                            // 觸發 blur 事件，讓 handleBlur 處理更新或還原
+                            input.blur(); 
                         }
                         document.removeEventListener('click', globalClick);
                     }, 50);
@@ -309,6 +299,11 @@
             const statusElement = document.getElementById(`status-${row}`);
             const quantitySpan = container.querySelector(`.editable-quantity`);
             
+            // 處理如果已經是編輯模式，則退出
+            if(quantitySpan.querySelector('input')) {
+                quantitySpan.innerHTML = newQuantity;
+            }
+
             if (!quantitySpan) return;
 
             statusElement.textContent = '更新中...';
@@ -330,12 +325,18 @@
                     body: JSON.stringify(postBody)
                 });
 
+                if (!response.ok) {
+                    const errorResponse = await response.json();
+                    throw new Error(errorResponse.message || `HTTP 錯誤：狀態 ${response.status}`);
+                }
+
                 const result = await response.json();
 
                 if (result.error) {
                     throw new Error(result.message);
                 }
 
+                // 成功後更新畫面上的數量和 data-quantity 屬性
                 quantitySpan.innerHTML = newQuantity;
                 quantitySpan.dataset.quantity = newQuantity; 
                 
@@ -344,11 +345,19 @@
 
             } catch (error) {
                 console.error('更新失敗:', error);
-                displayItemStatus(row, `❌ 更新失敗: ${error.message.substring(0, 30)}...`, false);
+                displayItemStatus(row, `❌ 更新失敗: ${error.message.substring(0, 40)}...`, false);
+                
+                // 重新載入，確保數量與資料庫一致
                 loadInventory(currentSheet); 
             } finally {
                 container.style.opacity = 1;
             }
+        }
+
+        // 由於您在 HTML 標籤上調用了 loadInventory()，我們需要一個不帶參數的版本
+        // 專門用於按鈕點擊更新資料
+        function reloadInventory() {
+            loadInventory(currentSheet);
         }
 
     </script>
@@ -394,7 +403,7 @@
                 <p class="text-xs font-semibold text-gray-700 mb-1">
                     上次更新：<span id="lastUpdatedTime" class="text-coop-primary font-extrabold">載入中...</span>
                 </p>
-                <button onclick="loadInventory()" class="text-xs text-gray-500 hover:text-coop-dark/80 transition duration-150 underline">點擊此處更新資料</button>
+                <button onclick="reloadInventory()" class="text-xs text-gray-500 hover:text-coop-dark/80 transition duration-150 underline">點擊此處更新資料</button>
             </div>
         </div>
 
