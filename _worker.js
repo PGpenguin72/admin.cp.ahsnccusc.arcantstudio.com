@@ -1,111 +1,124 @@
-// @ts-check
-
 /**
- * 處理所有 Web 請求。
- * 1. 處理根路徑 / 請求 (回傳主頁面 HTML)。
- * 2. 處理 /api/inventory 請求 (Apps Script API Proxy)。
- * NOTE: 我們假設主頁面檔案 index.html 的內容可透過全局變數 __files 存取。
+ * 處理 Web App API 請求 (GET)。
+ * 讀取指定工作表（預設為 'Breakfast'）的庫存數據和時間戳記。
+ * * 假設：
+ * - 庫存資料在 A 欄 (品名) 和 B 欄 (數量)，從第 2 行開始。
+ * - 時間元件 (年, 月, 日, 時, 分, 秒) 位於 E2 到 E7 儲存格。
  */
-export default {
-  async fetch(request, env, ctx) {
-    const url = new URL(request.url);
+function doGet(e) {
+  const sheetName = e.parameter.sheetName || 'Breakfast';
+  
+  let updatedAt = null;
+  
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName(sheetName);
+    
+    if (!sheet) {
+      throw new Error(`找不到工作表 "${sheetName}"。`);
+    }
 
-    // --- 1. 靜態檔案服務邏輯: 處理根路徑 / 或主頁面檔案請求 ---
-    // 修正: 現在只尋找 'index.html'
-    if (url.pathname === '/' || url.pathname.endsWith('/index.html')) {
-        
-        // 嘗試回傳 index.html 的內容
-        const assetPath = 'index.html';
-        
-        // 檢查環境是否提供了主頁面檔案的內容
-        if (typeof __files !== 'undefined' && __files[assetPath]) {
-             return new Response(__files[assetPath], { 
-                headers: { 'Content-Type': 'text/html' } // 確保設定正確的 Content-Type
-             });
-        } else {
-            // 如果無法存取檔案內容，請檢查檔案名稱和部署狀態
-             return new Response(`主頁面 HTML 檔案 (${assetPath}) 載入失敗，請確認檔案名稱和部署狀態。`, { status: 500 });
-        }
+    // --- 讀取時間戳記 ---
+    try {
+      const timeValues = sheet.getRange(2, 5, 6, 1).getValues().flat(); 
+      const [year, month, day, hour, minute, second] = timeValues.map(v => Number(v) || 0);
+      const pad = (num) => String(num).padStart(2, '0');
+      updatedAt = `${year}-${pad(month)}-${pad(day)}T${pad(hour)}:${pad(minute)}:${pad(second)}`;
+    } catch (timeError) {
+      Logger.log("讀取時間戳記時發生錯誤: " + timeError.message);
+      updatedAt = null;
+    }
+
+    // --- 讀取庫存資料 ---
+    const lastRow = sheet.getLastRow();
+    let inventoryData = [];
+
+    if (lastRow >= 2) {
+      // 讀取 A:C 範圍 (品名, 數量, [暫不使用])，但最關鍵的是讀取 A, B 欄
+      // 我們在數據中新增 'row' 屬性，用來指示前端更新時該寫入哪一行
+      const range = sheet.getRange(2, 1, lastRow - 1, 2); 
+      const values = range.getValues();
+      
+      inventoryData = values
+        .filter(row => row[0]) // 濾除品名為空值的列
+        .map((row, index) => ({
+          // index + 2 是因為資料從第 2 行開始 (index 0 是第 2 行)
+          row: index + 2, 
+          name: String(row[0]).trim(),
+          quantity: Number(row[1]) || 0
+        }));
     }
     
-    // --- 2. API PROXY 邏輯: 處理 /api/inventory 路徑 (GET/POST) ---
-    if (url.pathname.startsWith('/api/inventory')) {
-      const method = request.method;
-      
-      const secretApiUrl = env.SS_API_URL;
-      if (!secretApiUrl) {
-        return new Response('API URL not configured', { status: 500 });
-      }
-      
-      let actualUrl = secretApiUrl;
-      let requestBody = null;
+    return ContentService.createTextOutput(JSON.stringify({
+      data: inventoryData,
+      updated_at: updatedAt
+    })).setMimeType(ContentService.MimeType.JSON);
 
-      // 處理 GET/POST 請求的參數和主體
-      if (method === 'GET') {
-        // 從瀏覽器請求中獲取 sheetName 查詢參數
-        const sheetName = url.searchParams.get('sheetName');
-        if (!sheetName) {
-          // GET 請求必須要有 sheetName
-          return new Response('Missing sheetName parameter', { status: 400 });
-        }
-        // 在伺服器端建立真正的請求 URL
-        actualUrl = `${secretApiUrl}?sheetName=${sheetName}`;
-      } else if (method === 'POST') {
-        try {
-            // 讀取請求主體，POST 請求不需要 URL 參數
-            requestBody = await request.text();
-        } catch(e) {
-             return new Response('Invalid POST body', { status: 400 });
-        }
-      } else if (method === 'OPTIONS') {
-           // 處理 OPTIONS 預檢請求 (CORS)
-            return new Response(null, {
-                status: 204, 
-                headers: {
-                    'Access-Control-Allow-Origin': '*',
-                    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-                    'Access-Control-Allow-Headers': 'Content-Type',
-                    'Access-Control-Max-Age': '86400',
-                },
-            });
-      } else {
-          // 處理不允許的方法
-          return new Response('Method Not Allowed', { status: 405 });
-      }
+  } catch (error) {
+    Logger.log("API 錯誤 (GET): " + error.message);
+    return ContentService.createTextOutput(JSON.stringify({ 
+      error: true, 
+      message: error.message,
+      updated_at: updatedAt
+    })).setMimeType(ContentService.MimeType.JSON);
+  }
+}
 
-      // 發起實際的 Apps Script 請求
-      try {
-        const fetchOptions = {
-            method: method,
-            headers: request.headers,
-        };
 
-        if (method === 'POST' && requestBody) {
-            fetchOptions.headers = new Headers(request.headers);
-            fetchOptions.body = requestBody;
-            // 移除 Content-Length 避免 Cloudflare Worker 報錯
-            fetchOptions.headers.delete('Content-Length'); 
-        }
+/**
+ * 處理 Web App API 請求 (POST)。
+ * 接收 JSON 格式的 { sheetName, row, newQuantity } 進行庫存更新。
+ */
+function doPost(e) {
+  let requestData;
+  try {
+    // 解析 JSON 請求體
+    requestData = JSON.parse(e.postData.contents);
+  } catch (error) {
+    return ContentService.createTextOutput(JSON.stringify({ 
+      error: true, 
+      message: "無法解析 JSON 請求體。"
+    })).setMimeType(ContentService.MimeType.JSON);
+  }
 
-        const response = await fetch(actualUrl, fetchOptions);
-        
-        // 複製 Apps Script 的回應並設定 CORS
-        const responseHeaders = new Headers(response.headers);
-        responseHeaders.set('Access-Control-Allow-Origin', '*'); 
+  const { sheetName, row, newQuantity } = requestData;
 
-        const responseBody = await response.text(); 
+  // 驗證輸入
+  if (!sheetName || !row || typeof newQuantity === 'undefined' || isNaN(newQuantity)) {
+    return ContentService.createTextOutput(JSON.stringify({ 
+      error: true, 
+      message: "缺少必要的參數 (sheetName, row, newQuantity) 或格式不正確。"
+    })).setMimeType(ContentService.MimeType.JSON);
+  }
 
-        return new Response(responseBody, {
-          status: response.status,
-          headers: responseHeaders,
-        });
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName(sheetName);
 
-      } catch (error) {
-        return new Response(`Proxy Fetch Error: ${error.message}`, { status: 500 });
-      }
+    if (!sheet) {
+      throw new Error(`找不到工作表 "${sheetName}"。`);
     }
 
-    // --- 3. 處理其他未匹配路徑 ---
-    return new Response('404 Not Found: 找不到資源', { status: 404 });
+    // 檢查行號是否在有效範圍內 (至少是第 2 行)
+    if (row < 2 || row > sheet.getLastRow()) {
+         throw new Error(`無效的行號 ${row}。`);
+    }
+
+    // 寫入新數量到 B 欄的指定行
+    // range: (行, 列, 行數, 列數) -> 從指定行、第 2 欄開始，取 1 行、1 列
+    sheet.getRange(row, 2).setValue(newQuantity);
+
+    // 成功回傳
+    return ContentService.createTextOutput(JSON.stringify({
+      success: true,
+      message: `工作表 ${sheetName} 的第 ${row} 行庫存已更新為 ${newQuantity}。`
+    })).setMimeType(ContentService.MimeType.JSON);
+
+  } catch (error) {
+    Logger.log("API 錯誤 (POST): " + error.message);
+    return ContentService.createTextOutput(JSON.stringify({ 
+      error: true, 
+      message: error.message
+    })).setMimeType(ContentService.MimeType.JSON);
   }
 }
