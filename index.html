@@ -3,28 +3,39 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    
+    <meta name="description" content="政附合作社熱食線上查詢系統，提供給你最新最即時的資料。">
+    
+    <link rel="icon" type="image/png" href="/picture/icon.png">
+    <link rel="shortcut icon" type="image/png" href="/picture/icon.png">
+
+    <meta property="og:title" content="政附合作社熱食系統 - 後台管理">
+    <meta property="og:description" content="隨時掌握政附合作社熱食的最新庫存數量，不再錯過想吃的品項！">
+    <meta property="og:image" content="/picture/icon.png">
+    <meta property="og:url" content="https://admin.cp.ahsnccusc.arcantstudio.com"> 
+    <meta property="og:type" content="website">
+    
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>政附合作社熱食系統 - 後台管理</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- 載入字體 -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Noto+Sans+TC:wght@400;500;700;900&display=swap" rel="stylesheet">
 
     <script>
-        // 設定 API 代理路徑
         const API_ENDPOINT = '/api/inventory'; 
         let currentSheet = 'Breakfast';
 
-        // 使用前台的 Tailwind Config 保持色彩一致
         tailwind.config = {
             theme: {
                 extend: {
                     colors: {
-                        'coop-primary': '#4f46e5', // 綠色 (主要色)
-                        'coop-dark': '#3730a3',    // 深綠色 (文字/強調)
-                        'coop-alert': '#f59e0b',   // 警告黃
-                        'coop-soldout': '#cc3333', // 售罄紅
-                        'text-dark': '#1f2937',    // 深灰文字
+                        'coop-primary': '#4f46e5',
+                        'coop-dark': '#3730a3',
+                        'coop-alert': '#f59e0b',
+                        'coop-soldout': '#cc3333',
+                        'text-dark': '#1f2937',
                     },
                     fontFamily: {
                         sans: ['Inter', 'Noto Sans TC', 'sans-serif'],
@@ -34,7 +45,6 @@
         }
         
         document.addEventListener('DOMContentLoaded', () => {
-            // 監聽 Tab 按鈕
             document.querySelectorAll('.sheet-tab').forEach(tab => {
                 tab.addEventListener('click', (e) => {
                     const sheetName = e.currentTarget.dataset.sheet;
@@ -42,20 +52,12 @@
                 });
             });
 
-            // 初始化載入
             switchTab(currentSheet, true);
         });
 
-        // --- 核心功能函數 ---
-
-        /** * 切換 Tab 樣式並重新載入庫存 
-         * @param {string} newSheetName 
-         * @param {boolean} isInitialLoad 
-         */
         function switchTab(newSheetName, isInitialLoad = false) {
             if (currentSheet === newSheetName && !isInitialLoad) return;
 
-            // 更新按鈕樣式 (使用 coop 顏色)
             document.querySelectorAll('.sheet-tab').forEach(tab => {
                 tab.classList.remove('border-coop-dark', 'text-coop-dark', 'bg-coop-primary/10');
                 tab.classList.add('border-transparent', 'text-gray-600', 'hover:bg-gray-50');
@@ -69,9 +71,6 @@
             loadInventory(currentSheet);
         }
         
-        /**
-         * 格式化時間戳記
-         */
         function formatTimestamp(isoString) {
             if (!isoString || isoString === 'N/A - 獲取失敗') return 'N/A';
             try {
@@ -86,10 +85,6 @@
             }
         }
 
-        /**
-         * 載入指定工作表的庫存資料
-         * @param {string} sheetName 
-         */
         async function loadInventory(sheetName) {
             const container = document.getElementById('inventoryContainer');
             const loading = document.getElementById('loadingIndicator');
@@ -111,7 +106,6 @@
                     return;
                 }
                 
-                // 成功載入
                 const inventoryData = result.data || result;
                 renderInventory(Array.isArray(inventoryData) ? inventoryData : [], container);
                 updateTimestamp(result.updated_at);
@@ -123,35 +117,26 @@
             }
         }
         
-        /**
-         * 渲染庫存卡片到頁面
-         * @param {Array<Object>} data 
-         * @param {HTMLElement} container 
-         */
         function renderInventory(data, container) {
             if (data.length === 0) {
                 container.innerHTML = `<p class="text-gray-500 text-center col-span-full py-10">此工作表目前沒有庫存品項。</p>`;
                 return;
             }
 
-            // 使用與前台類似的網格配置
             container.className = 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8 max-w-6xl mx-auto';
 
             container.innerHTML = data.map(item => `
                 <div id="item-${item.row}" class="bg-white rounded-2xl shadow-xl p-6 border-2 border-gray-200 transition duration-300 hover:shadow-2xl flex flex-col justify-between">
                     <h3 class="text-xl font-extrabold text-text-dark mb-1 truncate">${item.name}</h3>
 
-                    <!-- 庫存控制區塊 -->
                     <div class="flex items-center justify-between space-x-2 bg-gray-100 rounded-xl p-3 shadow-inner">
                         
-                        <!-- 減號按鈕 (使用售罄紅) -->
                         <button 
                             class="w-10 h-10 bg-coop-soldout text-white text-2xl rounded-lg font-bold hover:bg-red-600 active:bg-red-700 transition duration-150 shadow-md flex items-center justify-center"
                             onclick="changeQuantity(${item.row}, -1)">
                             &minus;
                         </button>
                         
-                        <!-- 數量顯示/編輯區域 -->
                         <div class="flex-grow flex justify-center items-center h-10">
                             <span 
                                 class="text-3xl font-bold text-gray-900 px-4 py-1 rounded-lg editable-quantity"
@@ -164,7 +149,6 @@
                             </span>
                         </div>
                         
-                        <!-- 加號按鈕 (使用主要綠色) -->
                         <button 
                             class="w-10 h-10 bg-coop-primary text-white text-2xl rounded-lg font-bold hover:bg-coop-dark active:bg-coop-dark/90 transition duration-150 shadow-md flex items-center justify-center"
                             onclick="changeQuantity(${item.row}, 1)">
@@ -177,19 +161,11 @@
             `).join('');
         }
         
-        /**
-         * 更新顯示的時間戳記
-         * @param {string | null} timestampStr 
-         */
         function updateTimestamp(timestampStr) {
             const tsElement = document.getElementById('lastUpdatedTime');
             tsElement.textContent = formatTimestamp(timestampStr);
         }
         
-        /**
-         * 顯示頂部錯誤訊息
-         * @param {string} message 
-         */
         function displayError(message) {
             const errorDiv = document.getElementById('errorMessage');
             const errorDetail = document.getElementById('errorDetail');
@@ -197,18 +173,11 @@
             errorDiv.classList.remove('hidden');
         }
 
-        /**
-         * 顯示單個品項的狀態訊息 (成功/失敗)
-         * @param {number} row 
-         * @param {string} message 
-         * @param {boolean} isSuccess
-         */
         function displayItemStatus(row, message, isSuccess) {
             const statusElement = document.getElementById(`status-${row}`);
             if (statusElement) {
                 statusElement.textContent = message;
                 statusElement.className = isSuccess ? 'text-green-600 text-sm mt-3 h-4' : 'text-red-600 text-sm mt-3 h-4';
-                // 2 秒後清除訊息
                 setTimeout(() => {
                     if(statusElement.textContent === message) statusElement.textContent = '';
                 }, 2000);
@@ -216,52 +185,37 @@
         }
 
 
-        // --- 互動功能函數 ---
-
-        /**
-         * 處理增減按鈕點擊，並從 DOM 讀取最新庫存數量
-         * @param {number} row - 要更新的試算表行號
-         * @param {number} delta - 增減量 (+1 或 -1)
-         */
         function changeQuantity(row, delta) {
             const quantitySpan = document.querySelector(`.editable-quantity[data-row="${row}"]`);
             if (!quantitySpan) {
-                 console.error(`無法找到 Row ${row} 的數量元素。`);
-                 return;
+                console.error(`無法找到 Row ${row} 的數量元素。`);
+                return;
             }
 
             const currentQuantity = parseInt(quantitySpan.dataset.quantity || '0', 10);
-            const newQuantity = Math.max(0, currentQuantity + delta); // 數量不小於 0
+            const newQuantity = Math.max(0, currentQuantity + delta);
 
             if (newQuantity !== currentQuantity) {
                 updateInventory(row, newQuantity);
             }
         }
 
-        /**
-         * 切換數量顯示區域為輸入框，以便手動輸入
-         * @param {HTMLElement} element 
-         */
         function toggleEditMode(element) {
-            if (element.querySelector('input')) return; // 已經是輸入模式
+            if (element.querySelector('input')) return;
 
             const currentQuantity = parseInt(element.dataset.quantity || '0');
 
-            // 創建輸入框
             const input = document.createElement('input');
             input.type = 'number';
             input.value = currentQuantity;
-            // 使用 coop-primary 作為邊框顏色
             input.className = 'w-full h-full text-3xl font-bold text-gray-900 text-center border-2 border-coop-primary rounded-lg p-1 focus:outline-none';
             input.min = '0'; 
 
-            // 退出編輯模式並恢復文字顯示
             const exitEditMode = (el, quantity) => {
                 el.innerHTML = quantity;
                 el.dataset.quantity = quantity;
             };
 
-            // 處理失焦 (Blur) 事件 - 當點擊其他地方或按 Tab
             const handleBlur = () => {
                 input.removeEventListener('blur', handleBlur);
                 input.removeEventListener('keydown', handleKeydown);
@@ -270,21 +224,17 @@
                 
                 if (!isNaN(newQuantity) && newQuantity >= 0 && newQuantity !== currentQuantity) {
                     updateInventory(parseInt(element.dataset.row, 10), newQuantity);
-                    // 異步更新，暫時保留舊值
                 } else {
-                    // 恢復為文字顯示模式（使用舊值）
                     exitEditMode(element, currentQuantity);
                 }
             };
 
-            // 處理 Enter 鍵事件 - 快速提交
             const handleKeydown = (e) => {
                 if (e.key === 'Enter') {
-                    input.blur(); // 觸發 blur 事件
+                    input.blur();
                 }
             };
 
-            // 清空舊內容並插入輸入框
             element.innerHTML = '';
             element.appendChild(input);
             input.focus();
@@ -306,11 +256,6 @@
         }
 
 
-        /**
-         * 發送 POST 請求更新庫存到 Apps Script
-         * @param {number} row - 要更新的試算表行號
-         * @param {number} newQuantity - 新的庫存數量
-         */
         async function updateInventory(row, newQuantity) {
             const container = document.getElementById(`item-${row}`);
             const statusElement = document.getElementById(`status-${row}`);
@@ -318,9 +263,8 @@
             
             if (!quantitySpan) return;
 
-            // 鎖定 UI，顯示處理中
             statusElement.textContent = '更新中...';
-            statusElement.className = 'text-coop-primary text-sm mt-3 h-4'; // 使用主要色顯示處理中
+            statusElement.className = 'text-coop-primary text-sm mt-3 h-4';
             container.style.opacity = 0.6;
 
             const postBody = {
@@ -344,17 +288,15 @@
                     throw new Error(result.message);
                 }
 
-                // 成功更新後，更新前端的顯示和 data 屬性
                 quantitySpan.innerHTML = newQuantity;
                 quantitySpan.dataset.quantity = newQuantity; 
                 
                 displayItemStatus(row, '✅ 更新成功', true);
-                updateTimestamp(new Date().toISOString()); // 即時更新上次更新時間
+                updateTimestamp(new Date().toISOString());
 
             } catch (error) {
                 console.error('更新失敗:', error);
                 displayItemStatus(row, `❌ 更新失敗: ${error.message.substring(0, 30)}...`, false);
-                // 失敗時，強制重新載入以同步資料
                 loadInventory(currentSheet); 
             } finally {
                 container.style.opacity = 1;
@@ -363,7 +305,6 @@
 
     </script>
     <style>
-        /* 繼承前台的整體樣式 */
         body {
             font-family: 'Inter', 'Noto Sans TC', 'sans-serif';
             background-color: #f7f7f7;
@@ -375,15 +316,13 @@
             padding-left: 1rem;
             padding-right: 1rem;
         }
-        /* 專門針對可編輯的數量文字設置樣式 */
         .editable-quantity {
             transition: background-color 0.2s;
         }
         .editable-quantity:hover {
-            background-color: #e5e7eb; /* 淺灰色背景提示可點擊 */
+            background-color: #e5e7eb;
             cursor: pointer;
         }
-        /* 隱藏 Chrome/Firefox 的數字輸入框箭頭 */
         input[type=number]::-webkit-inner-spin-button, 
         input[type=number]::-webkit-outer-spin-button { 
             -webkit-appearance: none; 
@@ -396,11 +335,9 @@
     </style>
 </head>
 <body class="bg-gray-50 min-h-screen text-text-dark">
-    <!-- 標頭 - 使用前台結構和色彩，並將標題改為後台 -->
     <header class="bg-white shadow-lg sticky top-0 z-20 border-b border-gray-200">
         <div class="container mx-auto p-4 flex justify-between items-center">
             <h1 class="text-2xl font-extrabold tracking-tight text-coop-dark flex items-center space-x-2">
-                <!-- 使用前台圖標 -->
                 <img src="/picture/icon.png" alt="合作社熱食系統圖標" class="w-8 h-8 rounded-full shadow-inner object-cover">
                 <span>政附合作社熱食 - 後台管理</span>
             </h1>
@@ -413,7 +350,6 @@
             </div>
         </div>
 
-        <!-- 警示列 - 使用前台結構，但內容變更為後台警告 -->
         <div class="bg-coop-alert/20 border-t border-coop-alert py-2 text-center">
             <p class="text-sm font-bold text-coop-dark">
                 ⚠️ 後台管理介面：您的更改會即時同步至前台！請謹慎操作！
@@ -424,7 +360,6 @@
     <main class="container mx-auto mt-8 pb-10">
         <section class="mb-6">
             
-            <!-- Tab 選項 - 使用前台結構和色彩 -->
             <div class="flex max-w-4xl mx-auto border-b-2 border-gray-300 mb-8">
                 <button 
                     id="tab-Breakfast" 
@@ -440,13 +375,11 @@
                 </button>
             </div>
 
-            <!-- 當前工作表標題 -->
             <h2 class="text-3xl font-extrabold text-text-dark mb-6 text-center sm:text-left max-w-6xl mx-auto px-4 sm:px-0">
                 <span id="currentSheetDisplay" class="border-b-4 border-coop-primary pb-1">早餐</span>
                 - 商品庫存
             </h2>
             
-            <!-- 錯誤與載入指示器 - 使用主要綠色 -->
             <div id="loadingIndicator" class="text-center py-20 hidden">
                 <div class="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-coop-primary mx-auto mb-4"></div>
                 <p class="text-xl text-coop-primary font-medium">資料傳輸中... 正在從資料庫中獲取最新資料...</p>
@@ -458,12 +391,10 @@
             </div>
 
             <div id="inventoryContainer" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8 max-w-6xl mx-auto">
-                <!-- 庫存卡片將插入於此 -->
             </div>
         </section>
     </main>
 
-    <!-- 頁尾 - 使用前台結構 -->
     <footer class="text-center text-sm text-gray-500 p-4 border-t mt-16 bg-white shadow-inner">
         <p>政大附中合作社熱食系統 | ArcantStudio極區工作室 © 2025</p>
     </footer>
