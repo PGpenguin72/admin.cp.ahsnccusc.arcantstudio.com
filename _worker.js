@@ -11,7 +11,7 @@ export default {
     const url = new URL(request.url);
 
     // --- 1. 靜態檔案服務邏輯: 處理根路徑 / 或主頁面檔案請求 ---
-    if (url.pathname === '/' || url.pathname.endsWith('/index_admin.html')) {
+    if (url.pathname === '/' || url.pathname.endsWith('/index.html')) {
         
         // 檢查環境是否提供了主頁面檔案的內容 (我們使用的是上一步生成的 index_admin.html)
         // 假定環境透過 __files 物件存取靜態檔案內容
