@@ -158,6 +158,7 @@
                 return;
             }
 
+            // **修正 1：移除 item.quantity，讓 changeQuantity 函數自行從 DOM 讀取最新值**
             container.innerHTML = data.map(item => `
                 <div id="item-${item.row}" class="bg-white rounded-xl shadow-md p-6 border border-gray-200 transition duration-300 hover:shadow-lg">
                     <h3 class="text-2xl font-semibold text-gray-800 mb-4">${item.name}</h3>
@@ -181,12 +182,12 @@
                         <div class="flex space-x-2">
                             <button 
                                 class="w-12 h-12 bg-red-500 text-white text-3xl rounded-lg font-bold hover:bg-red-600 active:bg-red-700 transition duration-150 shadow-md"
-                                onclick="changeQuantity(${item.row}, ${item.quantity}, -1)">
+                                onclick="changeQuantity(${item.row}, -1)">
                                 -
                             </button>
                             <button 
                                 class="w-12 h-12 bg-green-500 text-white text-3xl rounded-lg font-bold hover:bg-green-600 active:bg-green-700 transition duration-150 shadow-md"
-                                onclick="changeQuantity(${item.row}, ${item.quantity}, 1)">
+                                onclick="changeQuantity(${item.row}, 1)">
                                 +
                             </button>
                         </div>
@@ -246,13 +247,22 @@
         // --- 互動功能函數 ---
 
         /**
-         * 處理增減按鈕點擊
-         * @param {number} row 
-         * @param {number} currentQuantity 
-         * @param {number} delta 
+         * 處理增減按鈕點擊，並從 DOM 讀取最新庫存數量
+         * @param {number} row - 要更新的試算表行號
+         * @param {number} delta - 增減量 (+1 或 -1)
+         * * **修正 2：修改 changeQuantity 函數，讓它動態讀取 dataset.quantity**
          */
-        function changeQuantity(row, currentQuantity, delta) {
+        function changeQuantity(row, delta) {
+            const quantitySpan = document.querySelector(`.editable-quantity[data-row="${row}"]`);
+            if (!quantitySpan) {
+                 console.error(`無法找到 Row ${row} 的數量元素。`);
+                 return;
+            }
+
+            // 從 DOM 元素的 data-quantity 屬性中讀取當前數量
+            const currentQuantity = parseInt(quantitySpan.dataset.quantity || '0', 10);
             const newQuantity = Math.max(0, currentQuantity + delta); // 數量不小於 0
+
             if (newQuantity !== currentQuantity) {
                 updateInventory(row, newQuantity);
             }
@@ -274,20 +284,28 @@
             input.className = 'w-full h-full text-3xl font-bold text-gray-900 text-center border-2 border-indigo-500 rounded-lg p-1 focus:outline-none';
             input.min = '0'; // 確保不會輸入負數
 
-            // 清空舊內容並插入輸入框
-            element.innerHTML = '';
-            element.appendChild(input);
-            input.focus();
-            input.select();
+            // 退出編輯模式並恢復文字顯示
+            const exitEditMode = (el, quantity) => {
+                el.innerHTML = quantity;
+                el.dataset.quantity = quantity;
+                // 注意：這裡應該移除事件監聽器，但因為它們是定義在 handleBlur/handleKeydown 內，
+                // 且主要依賴 blur 事件來處理，我們主要依靠 blur 來完成任務。
+            };
 
             // 處理失焦 (Blur) 事件 - 當點擊其他地方或按 Tab
             const handleBlur = () => {
-                const newQuantity = parseInt(input.value);
+                // 移除事件監聽器以防止重複觸發
+                input.removeEventListener('blur', handleBlur);
+                input.removeEventListener('keydown', handleKeydown);
+
+                const newQuantity = parseInt(input.value, 10);
+                
                 // 檢查是否為有效數字且數量有變動
                 if (!isNaN(newQuantity) && newQuantity >= 0 && newQuantity !== currentQuantity) {
-                    updateInventory(parseInt(element.dataset.row), newQuantity);
+                    updateInventory(parseInt(element.dataset.row, 10), newQuantity);
+                    // 由於 updateInventory 是異步的，我們暫時保留舊值，等待 API 回應後再由 updateInventory 內部更新 DOM
                 } else {
-                    // 恢復為文字顯示模式
+                    // 恢復為文字顯示模式（使用舊值，因為沒有提交）
                     exitEditMode(element, currentQuantity);
                 }
             };
@@ -299,26 +317,25 @@
                 }
             };
 
+            // 清空舊內容並插入輸入框
+            element.innerHTML = '';
+            element.appendChild(input);
+            input.focus();
+            input.select();
+            
             input.addEventListener('blur', handleBlur);
             input.addEventListener('keydown', handleKeydown);
-            
-            // 退出編輯模式並恢復文字顯示
-            const exitEditMode = (el, quantity) => {
-                el.innerHTML = quantity;
-                el.dataset.quantity = quantity;
-                el.removeEventListener('click', handleBlur); // 避免重複觸發
-                el.removeEventListener('keydown', handleKeydown);
-            };
 
-            // 當點擊輸入框外部時，退出編輯模式
-            document.addEventListener('click', (e) => {
+            // 當點擊輸入框外部時，退出編輯模式（這個外部監聽器邏輯保留以應對複雜的點擊情況）
+            document.addEventListener('click', function globalClick(e) {
                 if (!element.contains(e.target)) {
                     // 使用 setTimeout 確保 blur 優先處理
                     setTimeout(() => {
                         if (element.querySelector('input')) {
                             // 如果輸入框還存在，強制執行 blur
-                            input.blur(); 
+                            input.blur();
                         }
+                        document.removeEventListener('click', globalClick); // 完成後移除自身
                     }, 50);
                 }
             });
@@ -363,9 +380,9 @@
                     throw new Error(result.message);
                 }
 
-                // 成功更新後，更新前端的顯示和 data 屬性
+                // 成功更新後，更新前端的顯示和 data 屬性，確保下一次點擊能讀取到新值
                 quantitySpan.innerHTML = newQuantity;
-                quantitySpan.dataset.quantity = newQuantity;
+                quantitySpan.dataset.quantity = newQuantity; // 關鍵：更新 data 屬性
                 
                 displayItemStatus(row, '✅ 更新成功', true);
 
