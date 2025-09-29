@@ -160,6 +160,54 @@
                 </div>
             `).join('');
         }
+
+        async function loadInventory() {
+
+            const inventoryContainer = document.getElementById('inventoryContainer');
+            const loadingIndicator = document.getElementById('loadingIndicator');
+            const errorMessageDiv = document.getElementById('errorMessage');
+            const currentSheetDisplay = document.getElementById('currentSheetDisplay');
+            
+            currentSheetDisplay.textContent = currentSheet === 'Breakfast' ? '早餐' : '午餐';
+
+            inventoryContainer.innerHTML = '';
+            errorMessageDiv.classList.add('hidden');
+            loadingIndicator.classList.remove('hidden');
+            
+            updateTimestamp(null);
+
+            const apiUrl = `${APPS_SCRIPT_URL}?sheetName=${currentSheet}`;
+
+            try {
+                const response = await fetch(apiUrl);
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`代理伺服器錯誤 (狀態 ${response.status}): ${errorText}`);
+                }
+                
+                const data = await response.json(); 
+
+                if (data.error) {
+                    handleFailure(data);
+                } else {
+                    let timestamp = data.updated_at || (data.data && data.data.updated_at);
+
+                    if (timestamp) {
+                        updateTimestamp(timestamp);
+                    } else {
+                        updateTimestamp('N/A - 格式錯誤'); 
+                    }
+                    
+                    const inventoryData = data.data || data; 
+                    
+                    displayInventory(Array.isArray(inventoryData) ? inventoryData : []); 
+                }
+            } catch (error) {
+                handleFailure({ message: `網路連線失敗或後端資料格式錯誤。原始錯誤: ${error.message}` });
+            }
+        }
+        
         
         function updateTimestamp(timestampStr) {
             const tsElement = document.getElementById('lastUpdatedTime');
